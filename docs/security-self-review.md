@@ -16,6 +16,7 @@ Scope: package boundaries and protocol-v1 vertical slice. This is not an indepen
 - Message ID insertion is atomic and compares a SHA-256 hash of canonical bytes; identical retry is accepted as duplicate and conflicting reuse is rejected.
 - Recipient revocation blocks both new submissions and delivery polling. Acknowledgement is bound to recipient device ID.
 - The optional ASP.NET Core route group requires authorization, rejects missing/duplicate/malformed identity claims, verifies user/device ownership, derives polling and acknowledgement recipients from claims, and never accepts plaintext or private-key DTO fields.
+- The shared HTTP JSON profile rejects duplicate, unknown and case-mismatched properties, comments, trailing commas/data, coercion, missing non-null values and excessive nesting. Mirrored hostile-input corpora exercise registration, public-device and encrypted-envelope fields on both server and client; rejected input is not persisted or reflected in responses/exceptions.
 - A full TestServer integration test performs Alice encryption → bearer-authenticated HTTP submit → encrypted server storage → Bob polling/decryption/acknowledgement without bypassing either HTTP package.
 - A second full TestServer integration test performs the same authenticated E2EE round trip through a migrated PostgreSQL database. CI requires both the direct persistence test and this HTTP-backed path; a missing connection string is a failure there rather than a skip.
 - PostgreSQL tests race identical and conflicting inserts through independent contexts, prove one canonical row per message ID, verify at-least-once concurrent polling, first-ack atomicity, deterministic batch ordering and idempotent TTL cleanup.
@@ -41,5 +42,5 @@ Scope: package boundaries and protocol-v1 vertical slice. This is not an indepen
 - Key transparency and device-change UX.
 - Real protected key-store implementations for every target platform.
 - PostgreSQL concurrency, migration, backup/restore and cleanup tests under production-like load.
-- Fuzzing/corpus tests for the JSON transport and any future binary decoder.
+- Maintain the deterministic hostile-input corpus; add coverage-guided fuzzing for the JSON transport and any future binary decoder.
 - Logging review proving plaintext, tokens and key material cannot enter structured logs or exception telemetry.

@@ -9,8 +9,8 @@
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <PackageVersion>0.5.0</PackageVersion>
-    <Version>0.5.0</Version>
+    <PackageVersion>0.6.0</PackageVersion>
+    <Version>0.6.0</Version>
     <Authors>Skopka.Chat contributors</Authors>
     <Company>Skopka.Chat</Company>
     <Copyright>Copyright (c) Skopka.Chat contributors</Copyright>

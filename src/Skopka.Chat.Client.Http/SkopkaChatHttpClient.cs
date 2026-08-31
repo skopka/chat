@@ -381,9 +381,9 @@ public sealed class SkopkaChatHttpClient : IChatTransport
             return JsonSerializer.Deserialize(buffer.GetBuffer().AsSpan(0, checked((int)buffer.Length)), typeInfo) ??
                 throw InvalidResponse();
         }
-        catch (JsonException exception)
+        catch (JsonException)
         {
-            throw new ChatHttpTransportException("The chat HTTP response was invalid.", innerException: exception);
+            throw InvalidResponse();
         }
     }
 
@@ -505,9 +505,9 @@ public sealed class SkopkaChatHttpClient : IChatTransport
         {
             return response.ToDomain();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            throw new ChatHttpTransportException("The chat HTTP response was invalid.", innerException: exception);
+            throw InvalidResponse();
         }
     }
 
@@ -517,9 +517,9 @@ public sealed class SkopkaChatHttpClient : IChatTransport
         {
             return response.ToDomain();
         }
-        catch (ArgumentException exception)
+        catch (ArgumentException)
         {
-            throw new ChatHttpTransportException("The chat HTTP response was invalid.", innerException: exception);
+            throw InvalidResponse();
         }
     }
 

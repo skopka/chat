@@ -26,10 +26,7 @@ public static class SkopkaChatServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.ConfigureHttpJsonOptions(options =>
         {
-            if (!options.SerializerOptions.TypeInfoResolverChain.Contains(SkopkaChatHttpJsonContext.Default))
-            {
-                options.SerializerOptions.TypeInfoResolverChain.Insert(0, SkopkaChatHttpJsonContext.Default);
-            }
+            SkopkaChatHttpJson.Configure(options.SerializerOptions);
         });
         return services;
     }

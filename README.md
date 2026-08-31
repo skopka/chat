@@ -8,13 +8,13 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 - `Skopka.Chat.Protocol` — идентификаторы, лимиты, публичные контракты и каноническое бинарное представление v1; без ASP.NET Core, EF Core и криптографии клиента.
 - `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, fingerprints/security codes, `IChatTransport` и локальная дедупликация.
-- `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и source-generated `System.Text.Json` metadata; зависит только от Protocol.
+- `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
 - `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses и ограниченные retries идемпотентных операций; без ссылки на Server.
 - `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints с обязательной авторизацией и строгой привязкой user/device claims к серверным операциям; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.5.0` по-прежнему реализует protocol v1; minor-релиз усиливает PostgreSQL concurrent idempotency, first-ack, детерминированный polling и TTL cleanup, не меняя канонический wire format конверта. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.6.0` по-прежнему реализует protocol v1; minor-релиз усиливает HTTP JSON boundary, не меняя маршруты, DTO или канонический wire format конверта. Сервер и клиент отклоняют duplicate/unknown/case-mismatched поля, комментарии, trailing commas/data, строковые числа, отсутствующие обязательные значения и глубину больше 16. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Быстрый старт клиента
 
@@ -79,7 +79,7 @@ EncryptedEnvelope envelope = await crypto.EncryptTextAsync(
 await api.SendAsync(envelope);
 ```
 
-`SkopkaChatHttpClient` также регистрируется как `IChatTransport`. Он предназначен для transient/scoped использования, требует HTTPS, отключает redirects в предоставленном DI handler, получает новый токен перед каждой попыткой и не копирует error body в исключения. `RequireHttps = false` допустим только для доверенного локального TestServer. Подробнее: [ADR 0003](docs/adr/0003-http-contract-and-client.md).
+`SkopkaChatHttpClient` также регистрируется как `IChatTransport`. Он предназначен для transient/scoped использования, требует HTTPS, отключает redirects в предоставленном DI handler, получает новый токен перед каждой попыткой и не копирует error body или детали JSON parser в исключения. Успешный ответ сначала проходит byte limit, проверку JSON `Content-Type`, строгий разбор и protocol validation. `RequireHttps = false` допустим только для доверенного локального TestServer. Подробнее: [ADR 0003](docs/adr/0003-http-contract-and-client.md) и [ADR 0006](docs/adr/0006-strict-json-boundary.md).
 
 ## Подключение transport-neutral сервера
 
@@ -134,7 +134,7 @@ app.UseAuthorization();
 app.MapSkopkaChatApi();
 ```
 
-По умолчанию обе claims должны встречаться ровно один раз и содержать GUID в формате `D`. Регистрация получает user ID из principal, отправка сверяет claim устройства с `SenderDeviceId`, а polling/acknowledgement вообще не принимают recipient device ID от клиента. Общие DTO находятся в `Skopka.Chat.Transport.Http`, поэтому Client.Http не ссылается на серверную сборку. Для cookie-authentication host дополнительно обязан настроить CSRF-защиту; для любой схемы обязательны TLS, rate limits и внешний request-size limit. Полное решение зафиксировано в [ADR 0002](docs/adr/0002-aspnet-core-transport-authorization.md).
+По умолчанию обе claims должны встречаться ровно один раз и содержать GUID в формате `D`. Регистрация получает user ID из principal, отправка сверяет claim устройства с `SenderDeviceId`, а polling/acknowledgement вообще не принимают recipient device ID от клиента. Общие DTO находятся в `Skopka.Chat.Transport.Http`, поэтому Client.Http не ссылается на серверную сборку. `AddSkopkaChatAspNetCore` применяет строгий профиль к общим ASP.NET Core `HttpJsonOptions`; host с другими Minimal API должен проверить их совместимость с case-sensitive DTO без неизвестных или дублированных полей. Для cookie-authentication host дополнительно обязан настроить CSRF-защиту; для любой схемы обязательны TLS, rate limits и внешний request-size limit. Полное решение зафиксировано в [ADR 0002](docs/adr/0002-aspnet-core-transport-authorization.md) и [ADR 0006](docs/adr/0006-strict-json-boundary.md).
 
 ## Сборка и проверка
 
@@ -158,7 +158,7 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 
 Без переменной DB-тесты корректно пропускаются; остальные unit и in-memory integration tests не требуют инфраструктуры. Для release-like проверки установите также `$env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'`: тогда отсутствие connection string завершит тест ошибкой.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует оба DB-проекта, выполняет Release build/test/pack и сохраняет все семь `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и оба DB-проекта, выполняет Release build/test/pack и сохраняет все семь `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а клиент обязан сохранять локальную дедупликацию через транзакционную реализацию `IReceivedMessageStore`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 

@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
@@ -19,6 +21,8 @@ namespace Skopka.Chat.Server.AspNetCore.Tests;
 public sealed class AuthenticatedTransportTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 31, 12, 0, 0, TimeSpan.Zero);
+    private static readonly Guid HostileDeviceId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private const string HostileMarker = "secret-hostile-request-marker";
 
     [Fact]
     public async Task Route_group_rejects_unauthenticated_requests()
@@ -201,6 +205,82 @@ public sealed class AuthenticatedTransportTests
     }
 
     [Fact]
+    public async Task Hostile_envelope_fields_are_rejected_without_persistence_or_reflection()
+    {
+        await using var application = await CreateApplicationAsync();
+        using var client = application.GetTestClient();
+        var alice = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var bob = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await RegisterAsync(client, alice);
+        await RegisterAsync(client, bob);
+        var conversationId = await CreateConversationAsync(client, alice, bob.UserId);
+        var valid = Envelope(conversationId, alice, bob);
+
+        foreach (var hostile in HostileEnvelopeBodies(valid))
+        {
+            using var request = AuthorizedRequest(
+                HttpMethod.Post,
+                "/skopka-chat/v1/envelopes",
+                alice.UserId,
+                alice.DeviceId);
+            request.Content = new StringContent(hostile.Body, Encoding.UTF8, "application/json");
+
+            using var response = await client.SendAsync(request);
+            var responseBody = await response.Content.ReadAsStringAsync();
+
+            Assert.True(
+                response.StatusCode == HttpStatusCode.BadRequest,
+                $"Hostile envelope case '{hostile.Name}' returned {(int)response.StatusCode}.");
+            Assert.DoesNotContain(HostileMarker, responseBody, StringComparison.Ordinal);
+            Assert.Empty(application.Services.GetRequiredService<InMemoryServerStore>().SnapshotEnvelopes());
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(HostileRegistrationBodies))]
+    public async Task Strict_json_profile_rejects_hostile_registration_without_state_change(
+        string caseName,
+        string body)
+    {
+        await using var application = await CreateApplicationAsync();
+        using var client = application.GetTestClient();
+        using var request = AuthorizedRequest(
+            HttpMethod.Post,
+            "/skopka-chat/v1/devices",
+            Guid.NewGuid(),
+            HostileDeviceId);
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using var response = await client.SendAsync(request);
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain(HostileMarker, responseBody, StringComparison.Ordinal);
+        var repository = (IDeviceRepository)application.Services.GetRequiredService<InMemoryServerStore>();
+        Assert.Null(await repository.GetAsync(new DeviceId(HostileDeviceId)));
+        Assert.False(string.IsNullOrWhiteSpace(caseName));
+    }
+
+    [Fact]
+    public async Task Json_body_with_non_json_content_type_is_rejected_without_state_change()
+    {
+        await using var application = await CreateApplicationAsync();
+        using var client = application.GetTestClient();
+        using var request = AuthorizedRequest(
+            HttpMethod.Post,
+            "/skopka-chat/v1/devices",
+            Guid.NewGuid(),
+            HostileDeviceId);
+        request.Content = new StringContent(ValidRegistrationJson(), Encoding.UTF8, "text/plain");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+        var repository = (IDeviceRepository)application.Services.GetRequiredService<InMemoryServerStore>();
+        Assert.Null(await repository.GetAsync(new DeviceId(HostileDeviceId)));
+    }
+
+    [Fact]
     public void Transport_assembly_has_no_client_dependency()
     {
         var references = typeof(SkopkaChatEndpointRouteBuilderExtensions).Assembly
@@ -210,6 +290,66 @@ public sealed class AuthenticatedTransportTests
 
         Assert.DoesNotContain("Skopka.Chat.Client", references);
     }
+
+    public static IEnumerable<object[]> HostileRegistrationBodies()
+    {
+        var valid = ValidRegistrationJson();
+        var keyIdProperty = "\"keyId\":\"20000000-0000-0000-0000-000000000002\",";
+        var encryptionKey = Convert.ToBase64String(
+            Enumerable.Repeat((byte)0x11, ProtocolLimits.X25519PublicKeyBytes).ToArray());
+        var encryptionProperty = $"\"encryptionPublicKey\":\"{encryptionKey}\"";
+        var nestedValue = new string('[', SkopkaChatHttpJson.MaximumDepth + 1) +
+            "\"AA==\"" +
+            new string(']', SkopkaChatHttpJson.MaximumDepth + 1);
+
+        yield return ["empty", string.Empty];
+        yield return ["truncated", valid[..^1]];
+        yield return ["duplicate-property", valid.Replace(
+            $"\"deviceId\":\"{HostileDeviceId:D}\"",
+            $"\"deviceId\":\"{HostileDeviceId:D}\",\"deviceId\":\"{Guid.NewGuid():D}\"",
+            StringComparison.Ordinal)];
+        yield return ["unknown-property", valid[..^1] + $",\"{HostileMarker}\":\"{HostileMarker}\"}}"];
+        yield return ["case-mismatched-property", valid.Replace("\"deviceId\"", "\"DeviceId\"", StringComparison.Ordinal)];
+        yield return ["missing-required-property", valid.Replace(keyIdProperty, string.Empty, StringComparison.Ordinal)];
+        yield return ["null-non-nullable-property", valid.Replace(
+            $"\"{encryptionKey}\"",
+            "null",
+            StringComparison.Ordinal)];
+        yield return ["invalid-base64", valid.Replace(encryptionKey, "***not-base64***", StringComparison.Ordinal)];
+        yield return ["trailing-root-value", valid + "{}"];
+        yield return ["comment", "/* ambiguous */" + valid];
+        yield return ["trailing-comma", valid[..^1] + ",}"];
+        yield return ["excessive-depth", valid.Replace(encryptionProperty, $"\"encryptionPublicKey\":{nestedValue}", StringComparison.Ordinal)];
+    }
+
+    private static IEnumerable<(string Name, string Body)> HostileEnvelopeBodies(EncryptedEnvelopeDto valid)
+    {
+        yield return ("invalid-guid", SerializeEnvelope(valid).Replace(
+            valid.MessageId.ToString("D"),
+            HostileMarker,
+            StringComparison.Ordinal));
+        yield return ("empty-message-id", SerializeEnvelope(valid with { MessageId = Guid.Empty }));
+        yield return ("empty-signing-key-id", SerializeEnvelope(valid with { SenderSigningKeyId = Guid.Empty }));
+        yield return ("short-ephemeral-key", SerializeEnvelope(valid with { EphemeralPublicKey = [0x01] }));
+        yield return ("short-nonce", SerializeEnvelope(valid with { Nonce = [0x01] }));
+        yield return ("oversized-ciphertext", SerializeEnvelope(valid with
+        {
+            Ciphertext = new byte[ProtocolLimits.MaxCiphertextBytes + 1]
+        }));
+        yield return ("short-authentication-tag", SerializeEnvelope(valid with { AuthenticationTag = [0x01] }));
+        yield return ("short-signature", SerializeEnvelope(valid with { Signature = [0x01] }));
+
+        var serialized = SerializeEnvelope(valid);
+        var ciphertext = Convert.ToBase64String(valid.Ciphertext);
+        yield return ("invalid-base64", serialized.Replace(ciphertext, "***not-base64***", StringComparison.Ordinal));
+        yield return ("string-number", serialized.Replace(
+            $"\"protocolVersion\":{ProtocolVersions.Current}",
+            $"\"protocolVersion\":\"{ProtocolVersions.Current}\"",
+            StringComparison.Ordinal));
+    }
+
+    private static string SerializeEnvelope(EncryptedEnvelopeDto envelope) =>
+        JsonSerializer.Serialize(envelope, SkopkaChatHttpJsonContext.Default.EncryptedEnvelopeDto);
 
     private static async Task<WebApplication> CreateApplicationAsync()
     {
@@ -302,6 +442,15 @@ public sealed class AuthenticatedTransportTests
         keyId ?? Guid.NewGuid(),
         Enumerable.Repeat((byte)0x11, ProtocolLimits.X25519PublicKeyBytes).ToArray(),
         Enumerable.Repeat((byte)0x22, ProtocolLimits.Ed25519PublicKeyBytes).ToArray());
+
+    private static string ValidRegistrationJson()
+    {
+        var encryptionKey = Convert.ToBase64String(
+            Enumerable.Repeat((byte)0x11, ProtocolLimits.X25519PublicKeyBytes).ToArray());
+        var signingKey = Convert.ToBase64String(
+            Enumerable.Repeat((byte)0x22, ProtocolLimits.Ed25519PublicKeyBytes).ToArray());
+        return $$"""{"deviceId":"{{HostileDeviceId:D}}","keyId":"20000000-0000-0000-0000-000000000002","encryptionPublicKey":"{{encryptionKey}}","signingPublicKey":"{{signingKey}}"}""";
+    }
 
     private static EncryptedEnvelopeDto Envelope(
         Guid conversationId,

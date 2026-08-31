@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Transport.Http;
@@ -10,6 +13,7 @@ namespace Skopka.Chat.Client.Http.Tests;
 public sealed class HttpClientTransportTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 1, 9, 0, 0, TimeSpan.Zero);
+    private const string HostileMarker = "secret-hostile-response-marker";
 
     [Fact]
     public async Task Transient_response_is_retried_with_a_fresh_request_and_token()
@@ -160,6 +164,96 @@ public sealed class HttpClientTransportTests
         Assert.Contains("response was invalid", exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [MemberData(nameof(HostileResponseCases))]
+    public async Task Hostile_success_response_is_rejected_without_reflecting_remote_data(string caseName)
+    {
+        const string token = "secret-hostile-response-token";
+        var requestedDeviceId = Guid.NewGuid();
+        var body = HostilePublicDeviceResponse(caseName, requestedDeviceId);
+        var tokenProvider = new CountingTokenProvider(new ChatAccessToken(token, Now.AddHours(1)));
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            })))
+        {
+            BaseAddress = new Uri("https://chat.example.test/")
+        };
+        var client = CreateClient(httpClient, tokenProvider, Guid.NewGuid(), Guid.NewGuid());
+
+        var exception = await Assert.ThrowsAsync<ChatHttpTransportException>(async () =>
+            await client.GetDeviceAsync(new DeviceId(requestedDeviceId)));
+
+        Assert.Equal("The chat HTTP response was invalid.", exception.Message);
+        Assert.Null(exception.InnerException);
+        Assert.DoesNotContain(HostileMarker, exception.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(token, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Json_response_with_non_json_content_type_is_rejected()
+    {
+        var requestedDeviceId = Guid.NewGuid();
+        var tokenProvider = new CountingTokenProvider(new ChatAccessToken("token", Now.AddHours(1)));
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    ValidPublicDeviceJson(requestedDeviceId),
+                    Encoding.UTF8,
+                    "text/plain")
+            })))
+        {
+            BaseAddress = new Uri("https://chat.example.test/")
+        };
+        var client = CreateClient(httpClient, tokenProvider, Guid.NewGuid(), Guid.NewGuid());
+
+        await Assert.ThrowsAsync<ChatHttpTransportException>(async () =>
+            await client.GetDeviceAsync(new DeviceId(requestedDeviceId)));
+    }
+
+    [Theory]
+    [MemberData(nameof(HostileDeliveryCases))]
+    public async Task Hostile_delivery_fields_are_rejected_without_reflecting_remote_data(string caseName)
+    {
+        const string token = "secret-hostile-delivery-token";
+        var authenticatedDeviceId = Guid.NewGuid();
+        var body = HostileDeliveryResponse(caseName, authenticatedDeviceId);
+        var tokenProvider = new CountingTokenProvider(new ChatAccessToken(token, Now.AddHours(1)));
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
+            })))
+        {
+            BaseAddress = new Uri("https://chat.example.test/")
+        };
+        var client = CreateClient(httpClient, tokenProvider, Guid.NewGuid(), authenticatedDeviceId);
+
+        var exception = await Assert.ThrowsAsync<ChatHttpTransportException>(async () =>
+            await client.ReceiveAsync(new DeviceId(authenticatedDeviceId), 10));
+
+        Assert.Equal("The chat HTTP response was invalid.", exception.Message);
+        Assert.Null(exception.InnerException);
+        Assert.DoesNotContain(HostileMarker, exception.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(token, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Shared_json_context_uses_the_strict_bounded_profile()
+    {
+        var options = SkopkaChatHttpJsonContext.Default.Options;
+
+        Assert.False(options.AllowDuplicateProperties);
+        Assert.False(options.AllowTrailingCommas);
+        Assert.Equal(SkopkaChatHttpJson.MaximumDepth, options.MaxDepth);
+        Assert.False(options.PropertyNameCaseInsensitive);
+        Assert.True(options.RespectNullableAnnotations);
+        Assert.True(options.RespectRequiredConstructorParameters);
+        Assert.Equal(JsonUnmappedMemberHandling.Disallow, options.UnmappedMemberHandling);
+    }
+
     [Fact]
     public async Task Caller_cancellation_is_not_retried()
     {
@@ -229,6 +323,38 @@ public sealed class HttpClientTransportTests
         Assert.DoesNotContain(invalid, exception.ToString(), StringComparison.Ordinal);
     }
 
+    public static IEnumerable<object[]> HostileResponseCases()
+    {
+        yield return ["empty"];
+        yield return ["truncated"];
+        yield return ["duplicate-property"];
+        yield return ["unknown-property"];
+        yield return ["case-mismatched-property"];
+        yield return ["missing-required-property"];
+        yield return ["null-non-nullable-property"];
+        yield return ["invalid-base64"];
+        yield return ["trailing-root-value"];
+        yield return ["comment"];
+        yield return ["trailing-comma"];
+        yield return ["excessive-depth"];
+    }
+
+    public static IEnumerable<object[]> HostileDeliveryCases()
+    {
+        yield return ["invalid-guid"];
+        yield return ["empty-message-id"];
+        yield return ["empty-signing-key-id"];
+        yield return ["short-ephemeral-key"];
+        yield return ["short-nonce"];
+        yield return ["oversized-ciphertext"];
+        yield return ["short-authentication-tag"];
+        yield return ["short-signature"];
+        yield return ["invalid-base64"];
+        yield return ["string-number"];
+        yield return ["recipient-mismatch"];
+        yield return ["missing-acceptance-time"];
+    }
+
     private static SkopkaChatHttpClient CreateClient(
         HttpClient httpClient,
         IAccessTokenProvider tokenProvider,
@@ -258,6 +384,104 @@ public sealed class HttpClientTransportTests
         Enumerable.Repeat((byte)0x22, ProtocolLimits.Ed25519PublicKeyBytes).ToArray(),
         Now,
         null);
+
+    private static string HostilePublicDeviceResponse(string caseName, Guid requestedDeviceId)
+    {
+        var valid = ValidPublicDeviceJson(requestedDeviceId);
+        var keyIdProperty = "\"keyId\":\"30000000-0000-0000-0000-000000000003\",";
+        var encryptionKey = Convert.ToBase64String(
+            Enumerable.Repeat((byte)0x11, ProtocolLimits.X25519PublicKeyBytes).ToArray());
+        var encryptionProperty = $"\"encryptionPublicKey\":\"{encryptionKey}\"";
+        var nestedValue = new string('[', SkopkaChatHttpJson.MaximumDepth + 1) +
+            "\"AA==\"" +
+            new string(']', SkopkaChatHttpJson.MaximumDepth + 1);
+
+        return caseName switch
+        {
+            "empty" => string.Empty,
+            "truncated" => valid[..^1],
+            "duplicate-property" => valid.Replace(
+                $"\"deviceId\":\"{requestedDeviceId:D}\"",
+                $"\"deviceId\":\"{requestedDeviceId:D}\",\"deviceId\":\"{Guid.NewGuid():D}\"",
+                StringComparison.Ordinal),
+            "unknown-property" => valid[..^1] + $",\"{HostileMarker}\":\"{HostileMarker}\"}}",
+            "case-mismatched-property" => valid.Replace("\"deviceId\"", "\"DeviceId\"", StringComparison.Ordinal),
+            "missing-required-property" => valid.Replace(keyIdProperty, string.Empty, StringComparison.Ordinal),
+            "null-non-nullable-property" => valid.Replace($"\"{encryptionKey}\"", "null", StringComparison.Ordinal),
+            "invalid-base64" => valid.Replace(encryptionKey, "***not-base64***", StringComparison.Ordinal),
+            "trailing-root-value" => valid + "{}",
+            "comment" => "/* ambiguous */" + valid,
+            "trailing-comma" => valid[..^1] + ",}",
+            "excessive-depth" => valid.Replace(
+                encryptionProperty,
+                $"\"encryptionPublicKey\":{nestedValue}",
+                StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(caseName), caseName, "Unknown hostile response case.")
+        };
+    }
+
+    private static string ValidPublicDeviceJson(Guid deviceId)
+    {
+        var encryptionKey = Convert.ToBase64String(
+            Enumerable.Repeat((byte)0x11, ProtocolLimits.X25519PublicKeyBytes).ToArray());
+        var signingKey = Convert.ToBase64String(
+            Enumerable.Repeat((byte)0x22, ProtocolLimits.Ed25519PublicKeyBytes).ToArray());
+        return $$"""{"userId":"40000000-0000-0000-0000-000000000004","deviceId":"{{deviceId:D}}","keyId":"30000000-0000-0000-0000-000000000003","encryptionPublicKey":"{{encryptionKey}}","signingPublicKey":"{{signingKey}}","registeredAt":"2026-09-01T09:00:00+00:00","revokedAt":null}""";
+    }
+
+    private static string HostileDeliveryResponse(string caseName, Guid authenticatedDeviceId)
+    {
+        var valid = DeliveryEnvelope(authenticatedDeviceId);
+        var envelope = caseName switch
+        {
+            "empty-message-id" => valid with { MessageId = Guid.Empty },
+            "empty-signing-key-id" => valid with { SenderSigningKeyId = Guid.Empty },
+            "short-ephemeral-key" => valid with { EphemeralPublicKey = [0x01] },
+            "short-nonce" => valid with { Nonce = [0x01] },
+            "oversized-ciphertext" => valid with
+            {
+                Ciphertext = new byte[ProtocolLimits.MaxCiphertextBytes + 1]
+            },
+            "short-authentication-tag" => valid with { AuthenticationTag = [0x01] },
+            "short-signature" => valid with { Signature = [0x01] },
+            "recipient-mismatch" => valid with { RecipientDeviceId = Guid.NewGuid() },
+            _ => valid
+        };
+        var acceptedAt = caseName == "missing-acceptance-time" ? default : Now;
+        var serialized = JsonSerializer.Serialize(
+            new[] { new PendingDeliveryResponse(envelope, acceptedAt) },
+            SkopkaChatHttpJsonContext.Default.PendingDeliveryResponseArray);
+
+        return caseName switch
+        {
+            "invalid-guid" => serialized.Replace(valid.MessageId.ToString("D"), HostileMarker, StringComparison.Ordinal),
+            "invalid-base64" => serialized.Replace(
+                Convert.ToBase64String(valid.Ciphertext),
+                "***not-base64***",
+                StringComparison.Ordinal),
+            "string-number" => serialized.Replace(
+                $"\"protocolVersion\":{ProtocolVersions.Current}",
+                $"\"protocolVersion\":\"{ProtocolVersions.Current}\"",
+                StringComparison.Ordinal),
+            _ => serialized
+        };
+    }
+
+    private static EncryptedEnvelopeDto DeliveryEnvelope(Guid recipientDeviceId) => new(
+        ProtocolVersions.Current,
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        recipientDeviceId,
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Now,
+        Now.AddDays(1),
+        Enumerable.Repeat((byte)0x33, ProtocolLimits.X25519PublicKeyBytes).ToArray(),
+        Enumerable.Repeat((byte)0x44, ProtocolLimits.NonceBytes).ToArray(),
+        [0x45, 0x32, 0x45, 0x45],
+        Enumerable.Repeat((byte)0x55, ProtocolLimits.AuthenticationTagBytes).ToArray(),
+        Enumerable.Repeat((byte)0x66, ProtocolLimits.SignatureBytes).ToArray());
 
     private sealed class CountingTokenProvider(ChatAccessToken token) : IAccessTokenProvider
     {

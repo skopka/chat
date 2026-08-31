@@ -54,7 +54,7 @@ jobs:
       - name: Build
         run: dotnet build Skopka.Chat.sln --configuration Release --no-restore
 
-      - name: Run unit and infrastructure-free integration tests
+      - name: Run unit, hostile-input, and infrastructure-free integration tests
         run: dotnet test --solution Skopka.Chat.sln --configuration Release --no-build --no-restore
 
       - name: Require PostgreSQL reliability integration
