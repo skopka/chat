@@ -14,6 +14,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - No push-notification provider integration.
 - No key backup, recovery, transfer or account reset protocol.
 - The optional Minimal API and typed HTTP client support request/response polling only; no WebSocket or SignalR push transport is included.
+- Delivery is at-least-once. Concurrent pollers may observe the same envelope before acknowledgement; exactly-once local display depends on a transactional `IReceivedMessageStore`.
 - No token issuer, token format, authentication scheme or identity-provider integration is selected by the packages.
 - No UI and no SkopiClub integration.
 - No federation, traffic padding, sealed sender or metadata hiding.
@@ -26,7 +27,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - Protect device registration and revocation, rate-limit all endpoints and avoid sensitive logging.
 - Deliver public-key changes to users and require security-code comparison for high-risk conversations.
 - Run migration/TTL cleanup jobs and configure retention, database encryption, backup and operational monitoring.
-- Keep the PostgreSQL-backed HTTP integration mandatory in release CI; extend it with deployment-specific migration, failover and restore exercises.
+- Keep the PostgreSQL reliability and HTTP integration gates mandatory in release CI; extend them with sustained-load, deployment-specific failover and restore exercises.
 - Treat decrypted local messages as sensitive and implement transactional `IReceivedMessageStore` deduplication.
 
 ## Roadmap

@@ -14,7 +14,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints с обязательной авторизацией и строгой привязкой user/device claims к серверным операциям; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.4.0` по-прежнему реализует protocol v1; minor-релиз добавляет проверяемый HTTP → PostgreSQL vertical slice и обязательный CI/release gate, не меняя канонический wire format конверта. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.5.0` по-прежнему реализует protocol v1; minor-релиз усиливает PostgreSQL concurrent idempotency, first-ack, детерминированный polling и TTL cleanup, не меняя канонический wire format конверта. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Быстрый старт клиента
 
@@ -148,7 +148,7 @@ dotnet run --project samples/Skopka.Chat.Sample
 
 NuGet-пакеты создаются в `artifacts/packages`.
 
-Оба PostgreSQL integration test запускаются только против явно предоставленной одноразовой базы:
+PostgreSQL integration tests в двух проектах запускаются только против явно предоставленной одноразовой базы:
 
 ```powershell
 $env:SKOPKA_CHAT_POSTGRES = 'Host=localhost;Database=skopka_chat_tests;Username=postgres;Password=...'
@@ -158,7 +158,9 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 
 Без переменной DB-тесты корректно пропускаются; остальные unit и in-memory integration tests не требуют инфраструктуры. Для release-like проверки установите также `$env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'`: тогда отсутствие connection string завершит тест ошибкой.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует оба DB-теста, выполняет Release build/test/pack и сохраняет все семь `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует оба DB-проекта, выполняет Release build/test/pack и сохраняет все семь `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+
+PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а клиент обязан сохранять локальную дедупликацию через транзакционную реализацию `IReceivedMessageStore`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 
 ## Что не входит в v1
 

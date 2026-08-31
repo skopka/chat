@@ -85,7 +85,13 @@ public sealed class ChatDbContext : DbContext
             entity.Property(item => item.CanonicalHash).HasColumnName("canonical_hash").HasMaxLength(32);
             entity.Property(item => item.AcceptedAt).HasColumnName("accepted_at");
             entity.Property(item => item.AcknowledgedAt).HasColumnName("acknowledged_at");
-            entity.HasIndex(item => new { item.RecipientDeviceId, item.AcknowledgedAt, item.ExpiresAt, item.AcceptedAt })
+            entity.HasIndex(item => new
+            {
+                item.RecipientDeviceId,
+                item.AcknowledgedAt,
+                item.AcceptedAt,
+                item.MessageId
+            })
                 .HasDatabaseName("ix_envelopes_pending_delivery");
             entity.HasIndex(item => item.ExpiresAt).HasDatabaseName("ix_envelopes_expires_at");
             entity.HasOne<ConversationEntity>().WithMany().HasForeignKey(item => item.ConversationId)

@@ -100,6 +100,7 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
                 item.AcknowledgedAt == null &&
                 (item.ExpiresAt == null || item.ExpiresAt > now))
             .OrderBy(item => item.AcceptedAt)
+            .ThenBy(item => item.MessageId)
             .Take(maximumCount)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

@@ -64,6 +64,22 @@ public sealed class ServerEngineTests
         Assert.Empty(fixture.Store.SnapshotEnvelopes());
     }
 
+    [Fact]
+    public async Task Pending_batch_uses_message_id_as_the_acceptance_time_tie_breaker()
+    {
+        var fixture = await ServerFixture.CreateAsync();
+        var firstId = new MessageId(Guid.Parse("00000000-0000-0000-0000-000000000001"));
+        var secondId = new MessageId(Guid.Parse("00000000-0000-0000-0000-000000000002"));
+        var thirdId = new MessageId(Guid.Parse("00000000-0000-0000-0000-000000000003"));
+        await fixture.Engine.SubmitAsync(fixture.CreateEnvelope(thirdId), fixture.Now);
+        await fixture.Engine.SubmitAsync(fixture.CreateEnvelope(firstId), fixture.Now);
+        await fixture.Engine.SubmitAsync(fixture.CreateEnvelope(secondId), fixture.Now);
+
+        var batch = await fixture.Engine.ReceiveAsync(fixture.Bob.DeviceId, 2, fixture.Now);
+
+        Assert.Equal([firstId, secondId], batch.Select(item => item.Envelope.MessageId));
+    }
+
     private static EncryptedEnvelope Clone(EncryptedEnvelope source, byte[] ciphertext) => new(
         source.ProtocolVersion,
         source.MessageId,
@@ -111,9 +127,9 @@ public sealed class ServerEngineTests
             return fixture;
         }
 
-        public EncryptedEnvelope CreateEnvelope() => new(
+        public EncryptedEnvelope CreateEnvelope(MessageId? messageId = null) => new(
             ProtocolVersions.V1,
-            MessageId.New(),
+            messageId ?? MessageId.New(),
             ConversationId,
             Alice.DeviceId,
             Bob.DeviceId,

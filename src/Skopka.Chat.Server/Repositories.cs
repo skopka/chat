@@ -34,7 +34,7 @@ public interface IEnvelopeRepository
         DateTimeOffset acceptedAt,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Gets an undelivered, unexpired batch for one active device.</summary>
+    /// <summary>Gets an undelivered, unexpired batch ordered by acceptance time and message ID.</summary>
     ValueTask<IReadOnlyList<StoredEnvelope>> GetPendingAsync(
         DeviceId recipientDeviceId,
         int maximumCount,

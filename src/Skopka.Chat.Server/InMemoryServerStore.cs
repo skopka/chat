@@ -100,6 +100,7 @@ public sealed class InMemoryServerStore : IDeviceRepository, IConversationReposi
                 !record.AcknowledgedAt.HasValue &&
                 (!record.Envelope.ExpiresAt.HasValue || record.Envelope.ExpiresAt > now))
             .OrderBy(record => record.AcceptedAt)
+            .ThenBy(record => record.Envelope.MessageId.Value)
             .Take(maximumCount)
             .ToArray();
         return ValueTask.FromResult(result);

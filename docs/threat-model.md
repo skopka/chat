@@ -69,4 +69,6 @@ All supported operations are idempotent and transient retries are bounded. Each 
 
 ## PostgreSQL and CI boundary
 
-PostgreSQL persists public device keys, conversation/routing metadata, ciphertext, authentication data and delivery state. Database encryption, credentials, network isolation, retention, backups and operator access remain deployment responsibilities; E2EE does not hide metadata from database operators. The automated PostgreSQL service is a disposable correctness gate, not evidence of production availability or hardening. It verifies migrations and the complete authenticated HTTP round trip without granting the server any decryption capability.
+PostgreSQL persists public device keys, conversation/routing metadata, ciphertext, authentication data and delivery state. Database encryption, credentials, network isolation, retention, backups and operator access remain deployment responsibilities; E2EE does not hide metadata from database operators. Delivery is at-least-once: concurrent polling may expose the same ciphertext envelope to multiple workers until the first acknowledgement succeeds, so recipient-side transactional deduplication is part of the trust boundary.
+
+The automated PostgreSQL service is a disposable correctness gate, not evidence of production availability or hardening. It verifies migrations, bounded insert/acknowledgement races, deterministic selection, TTL deletion and the complete authenticated HTTP round trip without granting the server any decryption capability.

@@ -57,7 +57,7 @@ jobs:
       - name: Run unit and infrastructure-free integration tests
         run: dotnet test --solution Skopka.Chat.sln --configuration Release --no-build --no-restore
 
-      - name: Require PostgreSQL persistence integration
+      - name: Require PostgreSQL reliability integration
         run: dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
         env: &postgres-test-environment
           SKOPKA_CHAT_POSTGRES: Host=localhost;Port=5432;Database=skopka_chat_ci;Username=postgres;Password=skopka-chat-ci-only;Pooling=false
