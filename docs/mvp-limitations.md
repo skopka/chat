@@ -13,14 +13,15 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - No groups, attachments, streaming media or reactions.
 - No push-notification provider integration.
 - No key backup, recovery, transfer or account reset protocol.
-- No HTTP, WebSocket, SignalR, authentication/token format or authorization policy.
+- The optional Minimal API transport supports request/response polling only; no WebSocket or SignalR push transport is included.
+- No token issuer, token format, authentication scheme or identity-provider integration is selected by the packages.
 - No UI and no SkopiClub integration.
 - No federation, traffic padding, sealed sender or metadata hiding.
 
 ## Required host responsibilities
 
 - Implement `IDeviceKeyStore` with platform secure storage. Never use the in-memory store in production.
-- Authenticate each server request and authorize its device/user claims before calling the engine.
+- Configure a trusted ASP.NET Core authentication handler before mapping the optional API. Validate token signature, issuer, audience and lifetime as appropriate; never turn untrusted headers directly into claims.
 - Protect device registration and revocation, rate-limit all endpoints and avoid sensitive logging.
 - Deliver public-key changes to users and require security-code comparison for high-risk conversations.
 - Run migration/TTL cleanup jobs and configure retention, database encryption, backup and operational monitoring.
@@ -29,7 +30,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 ## Roadmap
 
 1. Independent review of protocol, implementation, dependencies and host-integration guidance.
-2. Authenticated device directory with append-only key transparency and key-change UX.
+2. Append-only key transparency and key-change UX for the authenticated device directory.
 3. Maintained ratcheting protocol for personal chat, introduced as a new protocol version with explicit migration.
 4. Multi-device fan-out, device-list consistency and safe device removal.
 5. Attachment encryption with independent keys, bounded streaming and integrity manifests.

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Server.AspNetCore</PackageId>
+    <Description>Authenticated ASP.NET Core Minimal API transport for the Skopka.Chat encrypted server engine.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Server\Skopka.Chat.Server.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -9,9 +9,10 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Protocol` — идентификаторы, лимиты, публичные контракты и каноническое бинарное представление v1; без ASP.NET Core, EF Core и криптографии клиента.
 - `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, fingerprints/security codes, `IChatTransport` и локальная дедупликация.
 - `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
+- `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints с обязательной авторизацией и строгой привязкой user/device claims к серверным операциям; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.1.0` реализует только protocol v1. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.2.0` по-прежнему реализует protocol v1; minor-релиз добавляет необязательный HTTP transport, не меняя wire format. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Быстрый старт клиента
 
@@ -46,7 +47,7 @@ ReceiveResult result = await receiver.ReceiveAsync(delivery.Envelope, senderPubl
 string code = SecurityCodes.Between(myPublicDevice, senderPublicDevice);
 ```
 
-## Подключение сервера
+## Подключение transport-neutral сервера
 
 Ядро не навязывает HTTP, WebSocket или SignalR. Host проверяет пользователя/access token, затем вызывает движок:
 
@@ -67,6 +68,39 @@ IReadOnlyList<StoredEnvelope> pending = await engine.ReceiveAsync(recipientDevic
 ```
 
 `ChatServerEngine` проверяет структуру, лимиты, участников, актуальность key ID, revocation и идемпотентность. Он намеренно не проверяет криптографическую подпись: получатель делает это в Client; транспортный host обязан аутентифицировать право устройства отправлять от своего имени.
+
+## Подключение ASP.NET Core API
+
+Необязательный пакет `Skopka.Chat.Server.AspNetCore` не выпускает и не валидирует токены. Сначала host настраивает доверенный authentication handler, затем регистрирует движок/repositories и transport:
+
+```csharp
+builder.Services
+    .AddAuthentication("Bearer")
+    .AddJwtBearer("Bearer", jwt =>
+    {
+        jwt.Authority = identityAuthority;
+        jwt.Audience = chatAudience;
+    });
+builder.Services.AddAuthorization();
+
+builder.Services.AddDbContext<ChatDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddScoped<PostgreSqlChatStore>();
+builder.Services.AddScoped<IDeviceRepository>(sp => sp.GetRequiredService<PostgreSqlChatStore>());
+builder.Services.AddScoped<IConversationRepository>(sp => sp.GetRequiredService<PostgreSqlChatStore>());
+builder.Services.AddScoped<IEnvelopeRepository>(sp => sp.GetRequiredService<PostgreSqlChatStore>());
+builder.Services.AddScoped<ChatServerEngine>();
+builder.Services.AddSkopkaChatAspNetCore(options =>
+{
+    options.UserIdClaimType = ClaimTypes.NameIdentifier;
+    options.DeviceIdClaimType = "skopka_chat_device_id";
+});
+
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapSkopkaChatApi();
+```
+
+По умолчанию обе claims должны встречаться ровно один раз и содержать GUID в формате `D`. Регистрация получает user ID из principal, отправка сверяет claim устройства с `SenderDeviceId`, а polling/acknowledgement вообще не принимают recipient device ID от клиента. Для cookie-authentication host дополнительно обязан настроить CSRF-защиту; для любой схемы обязательны TLS, rate limits и внешний request-size limit. Полное решение зафиксировано в [ADR 0002](docs/adr/0002-aspnet-core-transport-authorization.md).
 
 ## Сборка и проверка
 

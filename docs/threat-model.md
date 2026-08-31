@@ -51,6 +51,12 @@ The library deliberately supplies no filesystem key store. A host must implement
 - Multi-device users are representable, but the sender creates one envelope per recipient device; device fan-out policy belongs to the host application.
 - No key transparency, certificate authority, remote attestation or mandatory out-of-band fingerprint verification.
 - No traffic-shape protection, padding or sealed sender.
-- No UI, HTTP/SignalR/WebSocket binding, access-token format or production infrastructure.
+- No UI, SignalR/WebSocket push binding, access-token format, identity-provider integration or production infrastructure. An optional authenticated Minimal API polling transport is available.
 
-Before production use, obtain an independent protocol and implementation audit, add an authenticated device-directory/key-transparency design, define host authentication and authorization, and replace this MVP protocol with a maintained ratcheting protocol where the target platforms permit it.
+Before production use, obtain an independent protocol and implementation audit, add a key-transparency design, validate deployment-specific host authentication and authorization, and replace this MVP protocol with a maintained ratcheting protocol where the target platforms permit it.
+
+## Optional ASP.NET Core transport boundary
+
+`Skopka.Chat.Server.AspNetCore` treats the host authentication handler as a new trust boundary. It requires an authenticated principal and maps exactly one user and one device claim before endpoint logic. It then binds registration, submission, delivery polling, acknowledgement and revocation to that identity. Supplying a forged principal, a permissive development handler, an incorrectly validated JWT, or claims copied from untrusted headers defeats this boundary.
+
+The package does not log or persist access tokens and does not select a token format. TLS, issuer/audience/signature/lifetime validation, CORS, CSRF protection for cookie authentication, rate limits, proxy request limits and authorization-policy configuration belong to the host. HTTP authorization does not change the E2EE limitations above and does not hide routing metadata from the server.
