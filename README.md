@@ -16,6 +16,13 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 Версия пакетов `0.6.0` по-прежнему реализует protocol v1; minor-релиз усиливает HTTP JSON boundary, не меняя маршруты, DTO или канонический wire format конверта. Сервер и клиент отклоняют duplicate/unknown/case-mismatched поля, комментарии, trailing commas/data, строковые числа, отсутствующие обязательные значения и глубину больше 16. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
+## Документация
+
+- [Индекс документации](docs/README.md)
+- [Руководство разработчика](docs/development.md)
+- [Инструкции для coding-агентов](AGENTS.md)
+- [Threat model](docs/threat-model.md) и [security self-review](docs/security-self-review.md)
+
 ## Быстрый старт клиента
 
 Реальное приложение должно реализовать `IDeviceKeyStore` поверх защищённого хранилища платформы. `InMemoryDeviceKeyStore` предназначен только для тестов и sample.
