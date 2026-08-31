@@ -36,6 +36,12 @@ public sealed class PostgreSqlPersistenceTests
         var connectionString = Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES");
         if (string.IsNullOrWhiteSpace(connectionString))
         {
+            if (bool.TryParse(Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES_REQUIRED"), out var required) &&
+                required)
+            {
+                Assert.Fail("SKOPKA_CHAT_POSTGRES is required but was not provided.");
+            }
+
             Assert.Skip("Set SKOPKA_CHAT_POSTGRES to a disposable PostgreSQL database to run this integration test.");
         }
 

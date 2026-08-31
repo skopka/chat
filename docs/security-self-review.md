@@ -17,6 +17,7 @@ Scope: package boundaries and protocol-v1 vertical slice. This is not an indepen
 - Recipient revocation blocks both new submissions and delivery polling. Acknowledgement is bound to recipient device ID.
 - The optional ASP.NET Core route group requires authorization, rejects missing/duplicate/malformed identity claims, verifies user/device ownership, derives polling and acknowledgement recipients from claims, and never accepts plaintext or private-key DTO fields.
 - A full TestServer integration test performs Alice encryption → bearer-authenticated HTTP submit → encrypted server storage → Bob polling/decryption/acknowledgement without bypassing either HTTP package.
+- A second full TestServer integration test performs the same authenticated E2EE round trip through a migrated PostgreSQL database. CI requires both the direct persistence test and this HTTP-backed path; a missing connection string is a failure there rather than a skip.
 - The sample and integration test prove Alice → server → Bob while checking that the plaintext marker is absent from stored ciphertext.
 
 ## Findings deliberately not hidden
@@ -27,7 +28,7 @@ Scope: package boundaries and protocol-v1 vertical slice. This is not an indepen
 4. **No replay window beyond message ID.** The server and local store deduplicate IDs, but v1 has no ratchet counter or cross-server replay ledger. Severity: medium.
 5. **Metadata is not protected.** User/device graph, timestamps, frequency and approximate length remain visible. Severity depends on deployment.
 6. **In-memory key/message stores are intentionally unsafe for production.** Their names and documentation make this explicit, but package consumers can still misuse them. Severity: high if ignored.
-7. **PostgreSQL integration is opt-in locally.** The test requires `SKOPKA_CHAT_POSTGRES`; CI/release automation should provide a disposable database and fail if it is skipped.
+7. **PostgreSQL coverage is intentionally narrow.** CI verifies migration, direct repository persistence and one authenticated HTTP/E2EE round trip against a disposable single-node PostgreSQL 18 service. It does not validate concurrency, failover, retention jobs, backup/restore or production tuning. Severity: medium operational risk.
 8. **Dependency/native boundary.** NSec/libsodium native assets become part of the client trust base. Releases must monitor advisories and preserve exact reviewed dependency versions.
 9. **Managed access-token lifetime.** `ChatAccessToken` redacts its string representation, but immutable managed strings cannot be reliably zeroed. Severity: medium if providers copy or retain tokens unnecessarily. Resolution: short-lived tokens, protected provider storage and logging/telemetry review.
 

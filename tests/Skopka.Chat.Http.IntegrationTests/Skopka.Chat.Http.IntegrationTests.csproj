@@ -9,9 +9,12 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Client.Http\Skopka.Chat.Client.Http.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Persistence.PostgreSql\Skopka.Chat.Persistence.PostgreSql.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Server.AspNetCore\Skopka.Chat.Server.AspNetCore.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>

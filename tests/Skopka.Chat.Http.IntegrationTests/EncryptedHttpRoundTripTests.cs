@@ -7,11 +7,13 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skopka.Chat.Client;
 using Skopka.Chat.Client.Http;
+using Skopka.Chat.Persistence.PostgreSql;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
 using Skopka.Chat.Server.AspNetCore;
@@ -79,7 +81,75 @@ public sealed class EncryptedHttpRoundTripTests
         Assert.Empty(await bobApi.ReceiveAsync(bob.DeviceId, 10));
     }
 
-    private static async Task<WebApplication> CreateApplicationAsync(TestTokenRegistry tokens)
+    [Fact]
+    public async Task Alice_to_http_to_PostgreSql_to_Bob_preserves_e2ee()
+    {
+        var connectionString = GetPostgreSqlConnectionStringOrSkip();
+        var aliceKeyStore = new InMemoryDeviceKeyStore();
+        var bobKeyStore = new InMemoryDeviceKeyStore();
+        var alice = await new DeviceIdentityService(aliceKeyStore)
+            .CreateAsync(UserId.New(), DeviceId.New(), Now);
+        var bob = await new DeviceIdentityService(bobKeyStore)
+            .CreateAsync(UserId.New(), DeviceId.New(), Now);
+        var tokens = new TestTokenRegistry();
+        tokens.Add("postgres-alice-token", alice.UserId, alice.DeviceId);
+        tokens.Add("postgres-bob-token", bob.UserId, bob.DeviceId);
+        var conversationId = ConversationId.New();
+        var messageId = MessageId.New();
+        await using var application = await CreateApplicationAsync(tokens, connectionString);
+        using var aliceHttp = application.GetTestClient();
+        using var bobHttp = application.GetTestClient();
+        var aliceApi = CreateClient(aliceHttp, alice, "postgres-alice-token");
+        var bobApi = CreateClient(bobHttp, bob, "postgres-bob-token");
+
+        try
+        {
+            await aliceApi.RegisterDeviceAsync(alice);
+            await bobApi.RegisterDeviceAsync(bob);
+            await aliceApi.CreateConversationAsync(bob.UserId, conversationId);
+            var bobFromDirectory = Assert.IsType<PublicDevice>(
+                await aliceApi.GetDeviceAsync(bob.DeviceId));
+            const string plaintext = "PostgreSQL must never see this marker: 7E3CC90B.";
+            var envelope = await new ChatCryptoService(aliceKeyStore).EncryptTextAsync(
+                plaintext,
+                conversationId,
+                messageId,
+                alice.DeviceId,
+                bobFromDirectory,
+                Now,
+                Now.AddDays(1));
+
+            Assert.Equal(TransportSendStatus.Accepted, await aliceApi.SendAsync(envelope));
+            await using (var scope = application.Services.CreateAsyncScope())
+            {
+                var repository = scope.ServiceProvider.GetRequiredService<IEnvelopeRepository>();
+                var persisted = Assert.Single(await repository.GetPendingAsync(bob.DeviceId, 10, Now));
+                Assert.Equal(envelope.Ciphertext.ToArray(), persisted.Envelope.Ciphertext.ToArray());
+                Assert.True(persisted.Envelope.Ciphertext.Span.IndexOf(Encoding.UTF8.GetBytes(plaintext)) < 0);
+            }
+
+            var delivery = Assert.Single(await bobApi.ReceiveAsync(bob.DeviceId, 10));
+            var aliceFromDirectory = Assert.IsType<PublicDevice>(
+                await bobApi.GetDeviceAsync(alice.DeviceId));
+            var receiver = new ChatReceiver(
+                new ChatCryptoService(bobKeyStore),
+                new InMemoryReceivedMessageStore());
+            var received = await receiver.ReceiveAsync(delivery.Envelope, aliceFromDirectory);
+
+            Assert.True(received.Added);
+            Assert.Equal(plaintext, Encoding.UTF8.GetString(received.Message!.ExportPlaintext()));
+            await bobApi.AcknowledgeAsync(bob.DeviceId, messageId, Now.AddSeconds(1));
+            Assert.Empty(await bobApi.ReceiveAsync(bob.DeviceId, 10));
+        }
+        finally
+        {
+            await CleanupPostgreSqlAsync(application, messageId, conversationId, alice.DeviceId, bob.DeviceId);
+        }
+    }
+
+    private static async Task<WebApplication> CreateApplicationAsync(
+        TestTokenRegistry tokens,
+        string? postgreSqlConnectionString = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -98,12 +168,27 @@ public sealed class EncryptedHttpRoundTripTests
                 _ => { });
         builder.Services.AddAuthorization();
 
-        var store = new InMemoryServerStore();
-        builder.Services.AddSingleton(store);
-        builder.Services.AddSingleton<IDeviceRepository>(store);
-        builder.Services.AddSingleton<IConversationRepository>(store);
-        builder.Services.AddSingleton<IEnvelopeRepository>(store);
-        builder.Services.AddSingleton<ChatServerEngine>();
+        if (postgreSqlConnectionString is null)
+        {
+            var store = new InMemoryServerStore();
+            builder.Services.AddSingleton(store);
+            builder.Services.AddSingleton<IDeviceRepository>(store);
+            builder.Services.AddSingleton<IConversationRepository>(store);
+            builder.Services.AddSingleton<IEnvelopeRepository>(store);
+        }
+        else
+        {
+            builder.Services.AddDbContext<ChatDbContext>(options => options.UseNpgsql(postgreSqlConnectionString));
+            builder.Services.AddScoped<PostgreSqlChatStore>();
+            builder.Services.AddScoped<IDeviceRepository>(services =>
+                services.GetRequiredService<PostgreSqlChatStore>());
+            builder.Services.AddScoped<IConversationRepository>(services =>
+                services.GetRequiredService<PostgreSqlChatStore>());
+            builder.Services.AddScoped<IEnvelopeRepository>(services =>
+                services.GetRequiredService<PostgreSqlChatStore>());
+        }
+
+        builder.Services.AddScoped<ChatServerEngine>();
         builder.Services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
         builder.Services.AddSkopkaChatAspNetCore();
 
@@ -111,8 +196,49 @@ public sealed class EncryptedHttpRoundTripTests
         application.UseAuthentication();
         application.UseAuthorization();
         application.MapSkopkaChatApi();
+        if (postgreSqlConnectionString is not null)
+        {
+            await using var scope = application.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<ChatDbContext>().Database.MigrateAsync();
+        }
+
         await application.StartAsync();
         return application;
+    }
+
+    private static string GetPostgreSqlConnectionStringOrSkip()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES");
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            return connectionString;
+        }
+
+        if (bool.TryParse(Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES_REQUIRED"), out var required) &&
+            required)
+        {
+            Assert.Fail("SKOPKA_CHAT_POSTGRES is required but was not provided.");
+        }
+
+        Assert.Skip("Set SKOPKA_CHAT_POSTGRES to a disposable PostgreSQL database to run this integration test.");
+        return null!;
+    }
+
+    private static async Task CleanupPostgreSqlAsync(
+        WebApplication application,
+        MessageId messageId,
+        ConversationId conversationId,
+        DeviceId aliceDeviceId,
+        DeviceId bobDeviceId)
+    {
+        await using var scope = application.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"DELETE FROM envelopes WHERE message_id = {messageId.Value}");
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"DELETE FROM conversations WHERE conversation_id = {conversationId.Value}");
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"DELETE FROM devices WHERE device_id = {aliceDeviceId.Value} OR device_id = {bobDeviceId.Value}");
     }
 
     private static SkopkaChatHttpClient CreateClient(

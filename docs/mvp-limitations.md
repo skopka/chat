@@ -26,6 +26,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - Protect device registration and revocation, rate-limit all endpoints and avoid sensitive logging.
 - Deliver public-key changes to users and require security-code comparison for high-risk conversations.
 - Run migration/TTL cleanup jobs and configure retention, database encryption, backup and operational monitoring.
+- Keep the PostgreSQL-backed HTTP integration mandatory in release CI; extend it with deployment-specific migration, failover and restore exercises.
 - Treat decrypted local messages as sensitive and implement transactional `IReceivedMessageStore` deduplication.
 
 ## Roadmap

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+
+jobs:
+  validate:
+    name: Build, test, and pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:18.6-alpine3.24@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_DB: skopka_chat_ci
+          POSTGRES_PASSWORD: skopka-chat-ci-only
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d skopka_chat_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Skopka.Chat.sln --configfile NuGet.Config
+
+      - name: Build
+        run: dotnet build Skopka.Chat.sln --configuration Release --no-restore
+
+      - name: Run unit and infrastructure-free integration tests
+        run: dotnet test --solution Skopka.Chat.sln --configuration Release --no-build --no-restore
+
+      - name: Require PostgreSQL persistence integration
+        run: dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
+        env: &postgres-test-environment
+          SKOPKA_CHAT_POSTGRES: Host=localhost;Port=5432;Database=skopka_chat_ci;Username=postgres;Password=skopka-chat-ci-only;Pooling=false
+          SKOPKA_CHAT_POSTGRES_REQUIRED: true
+
+      - name: Require authenticated HTTP to PostgreSQL E2EE integration
+        run: dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
+        env: *postgres-test-environment
+
+      - name: Pack NuGet packages
+        run: dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
+
+      - name: Upload NuGet packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skopka-chat-nuget-${{ github.sha }}
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+          retention-days: 7
