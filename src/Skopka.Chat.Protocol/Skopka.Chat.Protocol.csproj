@@ -1,0 +1,8 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Protocol</PackageId>
+    <Description>Versioned, transport-neutral protocol contracts for Skopka.Chat encrypted messaging.</Description>
+  </PropertyGroup>
+
+</Project>
