@@ -1,11 +1,13 @@
 # Security-boundary self-review
 
-Date: 2026-08-31  
+Date: 2026-09-01
 Scope: package boundaries and protocol-v1 vertical slice. This is not an independent audit.
 
 ## Confirmed boundaries
 
 - `Skopka.Chat.Protocol` references no ASP.NET Core, EF Core, NSec or Client assembly.
+- `Skopka.Chat.Transport.Http` references Protocol only; shared JSON DTOs do not pull in Client, Server or ASP.NET Core.
+- `Skopka.Chat.Client.Http` references no Server assembly. It binds calls to configured user/device IDs, requires HTTPS by default, disables redirects in its registered handler, bounds responses and redacts token objects/errors.
 - `Skopka.Chat.Server` references Protocol only, has no decryption/private-key API and is protected by an automated assembly-reference test.
 - `Skopka.Chat.Persistence.PostgreSql` models public devices, conversation metadata, ciphertext, tag, signature and delivery state; an automated model test rejects plaintext/private-key property names.
 - Private keys cross only `IDeviceKeyStore`. `DeviceKeyMaterial` redacts `ToString`; exported temporary arrays are cleared after NSec import/use where controlled by the library.
@@ -14,6 +16,7 @@ Scope: package boundaries and protocol-v1 vertical slice. This is not an indepen
 - Message ID insertion is atomic and compares a SHA-256 hash of canonical bytes; identical retry is accepted as duplicate and conflicting reuse is rejected.
 - Recipient revocation blocks both new submissions and delivery polling. Acknowledgement is bound to recipient device ID.
 - The optional ASP.NET Core route group requires authorization, rejects missing/duplicate/malformed identity claims, verifies user/device ownership, derives polling and acknowledgement recipients from claims, and never accepts plaintext or private-key DTO fields.
+- A full TestServer integration test performs Alice encryption → bearer-authenticated HTTP submit → encrypted server storage → Bob polling/decryption/acknowledgement without bypassing either HTTP package.
 - The sample and integration test prove Alice → server → Bob while checking that the plaintext marker is absent from stored ciphertext.
 
 ## Findings deliberately not hidden
@@ -26,6 +29,7 @@ Scope: package boundaries and protocol-v1 vertical slice. This is not an indepen
 6. **In-memory key/message stores are intentionally unsafe for production.** Their names and documentation make this explicit, but package consumers can still misuse them. Severity: high if ignored.
 7. **PostgreSQL integration is opt-in locally.** The test requires `SKOPKA_CHAT_POSTGRES`; CI/release automation should provide a disposable database and fail if it is skipped.
 8. **Dependency/native boundary.** NSec/libsodium native assets become part of the client trust base. Releases must monitor advisories and preserve exact reviewed dependency versions.
+9. **Managed access-token lifetime.** `ChatAccessToken` redacts its string representation, but immutable managed strings cannot be reliably zeroed. Severity: medium if providers copy or retain tokens unnecessarily. Resolution: short-lived tokens, protected provider storage and logging/telemetry review.
 
 ## Release gate before production
 
@@ -35,5 +39,5 @@ Scope: package boundaries and protocol-v1 vertical slice. This is not an indepen
 - Key transparency and device-change UX.
 - Real protected key-store implementations for every target platform.
 - PostgreSQL concurrency, migration, backup/restore and cleanup tests under production-like load.
-- Fuzzing of canonical parsing when a wire decoder/transport package is introduced.
+- Fuzzing/corpus tests for the JSON transport and any future binary decoder.
 - Logging review proving plaintext, tokens and key material cannot enter structured logs or exception telemetry.

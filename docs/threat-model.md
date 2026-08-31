@@ -60,3 +60,9 @@ Before production use, obtain an independent protocol and implementation audit, 
 `Skopka.Chat.Server.AspNetCore` treats the host authentication handler as a new trust boundary. It requires an authenticated principal and maps exactly one user and one device claim before endpoint logic. It then binds registration, submission, delivery polling, acknowledgement and revocation to that identity. Supplying a forged principal, a permissive development handler, an incorrectly validated JWT, or claims copied from untrusted headers defeats this boundary.
 
 The package does not log or persist access tokens and does not select a token format. TLS, issuer/audience/signature/lifetime validation, CORS, CSRF protection for cookie authentication, rate limits, proxy request limits and authorization-policy configuration belong to the host. HTTP authorization does not change the E2EE limitations above and does not hide routing metadata from the server.
+
+## HTTP client boundary
+
+`Skopka.Chat.Client.Http` trusts its host-provided `IAccessTokenProvider`, configured user/device IDs, base address and `HttpMessageHandler`. Its DI registration requires HTTPS, disables automatic redirects and adds a bearer token only to the current request. A custom handler that follows redirects, logs Authorization values, weakens TLS or rewrites destinations can still disclose tokens or metadata.
+
+All supported operations are idempotent and transient retries are bounded. Each retry creates a new request and asks the provider for a current token; caller cancellation is not retried. Successful JSON responses are bounded and validated before becoming protocol objects. Error bodies are not surfaced, but status codes and network timing remain observable to the host. The package neither parses token claims nor refreshes tokens, so a mismatch between configured identity and issued claims fails at the server and must be diagnosed by the host without logging the token.

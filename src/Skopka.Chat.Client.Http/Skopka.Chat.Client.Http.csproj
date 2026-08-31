@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Client.Http</PackageId>
+    <Description>Authenticated, bounded and retry-aware HTTP client transport for Skopka.Chat.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Transport.Http\Skopka.Chat.Transport.Http.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+</Project>

@@ -30,3 +30,5 @@ Create `Skopka.Chat.Server.AspNetCore` as an optional package over `Skopka.Chat.
 The package is compatible with JWT bearer, cookies, mTLS-derived claims or a custom authentication scheme without depending on a specific identity provider. This flexibility means a host can still be insecure if it installs a permissive authentication handler or maps untrusted headers directly to claims; this is explicitly outside the package guarantee.
 
 The API prevents cross-device actions after authentication but does not add key transparency, rate limiting, anti-CSRF configuration for cookie schemes, TLS termination, CORS policy or token revocation. Those remain mandatory host/deployment responsibilities.
+
+Starting with package version 0.3.0, the unchanged routes and JSON DTOs live in `Skopka.Chat.Transport.Http` so the HTTP client and server adapter share a contract without referencing each other. See ADR 0003.

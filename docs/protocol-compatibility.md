@@ -25,5 +25,6 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | --- | --- | --- | --- |
 | `0.1.x` | v1 | v1 | Personal chat MVP; no ratchet. |
 | `0.2.x` | v1 | v1 | Adds the optional authenticated ASP.NET Core transport; canonical envelope bytes are unchanged. |
+| `0.3.x` | v1 | v1 | Adds shared HTTP contracts and the authenticated HTTP client; canonical envelope bytes are unchanged. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.

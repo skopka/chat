@@ -8,11 +8,13 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 - `Skopka.Chat.Protocol` — идентификаторы, лимиты, публичные контракты и каноническое бинарное представление v1; без ASP.NET Core, EF Core и криптографии клиента.
 - `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, fingerprints/security codes, `IChatTransport` и локальная дедупликация.
+- `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и source-generated `System.Text.Json` metadata; зависит только от Protocol.
+- `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses и ограниченные retries идемпотентных операций; без ссылки на Server.
 - `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints с обязательной авторизацией и строгой привязкой user/device claims к серверным операциям; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.2.0` по-прежнему реализует protocol v1; minor-релиз добавляет необязательный HTTP transport, не меняя wire format. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.3.0` по-прежнему реализует protocol v1; minor-релиз завершает общий HTTP client/server vertical slice, не меняя канонический wire format конверта. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Быстрый старт клиента
 
@@ -46,6 +48,38 @@ var receiver = new ChatReceiver(
 ReceiveResult result = await receiver.ReceiveAsync(delivery.Envelope, senderPublicDevice);
 string code = SecurityCodes.Between(myPublicDevice, senderPublicDevice);
 ```
+
+## HTTP-клиент
+
+Host реализует получение access token и регистрирует отдельный typed client для текущей пары user/device:
+
+```csharp
+builder.Services.AddScoped<IAccessTokenProvider, MyAccessTokenProvider>();
+builder.Services.AddSkopkaChatHttpClient(
+    new Uri("https://chat.example.com/"),
+    options =>
+    {
+        options.AuthenticatedUserId = myPublicDevice.UserId.Value;
+        options.AuthenticatedDeviceId = myPublicDevice.DeviceId.Value;
+    });
+
+var api = serviceProvider.GetRequiredService<SkopkaChatHttpClient>();
+await api.RegisterDeviceAsync(myPublicDevice);
+await api.CreateConversationAsync(peerUserId, conversationId);
+
+PublicDevice peer = await api.GetDeviceAsync(peerDeviceId)
+    ?? throw new InvalidOperationException("Peer device was not found.");
+EncryptedEnvelope envelope = await crypto.EncryptTextAsync(
+    "hello",
+    conversationId,
+    MessageId.New(),
+    myPublicDevice.DeviceId,
+    peer,
+    DateTimeOffset.UtcNow);
+await api.SendAsync(envelope);
+```
+
+`SkopkaChatHttpClient` также регистрируется как `IChatTransport`. Он предназначен для transient/scoped использования, требует HTTPS, отключает redirects в предоставленном DI handler, получает новый токен перед каждой попыткой и не копирует error body в исключения. `RequireHttps = false` допустим только для доверенного локального TestServer. Подробнее: [ADR 0003](docs/adr/0003-http-contract-and-client.md).
 
 ## Подключение transport-neutral сервера
 
@@ -100,7 +134,7 @@ app.UseAuthorization();
 app.MapSkopkaChatApi();
 ```
 
-По умолчанию обе claims должны встречаться ровно один раз и содержать GUID в формате `D`. Регистрация получает user ID из principal, отправка сверяет claim устройства с `SenderDeviceId`, а polling/acknowledgement вообще не принимают recipient device ID от клиента. Для cookie-authentication host дополнительно обязан настроить CSRF-защиту; для любой схемы обязательны TLS, rate limits и внешний request-size limit. Полное решение зафиксировано в [ADR 0002](docs/adr/0002-aspnet-core-transport-authorization.md).
+По умолчанию обе claims должны встречаться ровно один раз и содержать GUID в формате `D`. Регистрация получает user ID из principal, отправка сверяет claim устройства с `SenderDeviceId`, а polling/acknowledgement вообще не принимают recipient device ID от клиента. Общие DTO находятся в `Skopka.Chat.Transport.Http`, поэтому Client.Http не ссылается на серверную сборку. Для cookie-authentication host дополнительно обязан настроить CSRF-защиту; для любой схемы обязательны TLS, rate limits и внешний request-size limit. Полное решение зафиксировано в [ADR 0002](docs/adr/0002-aspnet-core-transport-authorization.md).
 
 ## Сборка и проверка
 

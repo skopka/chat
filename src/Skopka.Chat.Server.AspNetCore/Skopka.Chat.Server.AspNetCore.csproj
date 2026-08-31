@@ -8,6 +8,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />
     <ProjectReference Include="..\Skopka.Chat.Server\Skopka.Chat.Server.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Transport.Http\Skopka.Chat.Transport.Http.csproj" />
   </ItemGroup>
 
 </Project>

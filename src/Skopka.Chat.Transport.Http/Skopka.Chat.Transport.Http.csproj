@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Transport.Http</PackageId>
+    <Description>Shared HTTP routes, JSON contracts and protocol mappings for Skopka.Chat clients and servers.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>

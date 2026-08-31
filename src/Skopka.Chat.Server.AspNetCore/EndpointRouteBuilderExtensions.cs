@@ -7,18 +7,17 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
+using Skopka.Chat.Transport.Http;
 
 namespace Skopka.Chat.Server.AspNetCore;
 
 /// <summary>Maps the authenticated Minimal API surface over <see cref="ChatServerEngine"/>.</summary>
 public static class SkopkaChatEndpointRouteBuilderExtensions
 {
-    private const long EnvelopeRequestBodyLimit = ProtocolLimits.MaxCiphertextBytes + (32 * 1024L);
-
     /// <summary>Maps the versioned chat API. Every endpoint requires authorization.</summary>
     public static RouteGroupBuilder MapSkopkaChatApi(
         this IEndpointRouteBuilder endpoints,
-        string prefix = "/skopka-chat/v1")
+        string prefix = SkopkaChatHttpRoutes.DefaultPrefix)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
@@ -28,7 +27,7 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
             .Value;
         var group = endpoints.MapGroup(prefix)
             .WithTags("Skopka.Chat")
-            .WithMetadata(new RequestSizeLimitAttribute(EnvelopeRequestBodyLimit));
+            .WithMetadata(new RequestSizeLimitAttribute(SkopkaChatHttpLimits.MaxRequestBodyBytes));
         if (string.IsNullOrWhiteSpace(options.AuthorizationPolicy))
         {
             group.RequireAuthorization();
@@ -38,13 +37,13 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
             group.RequireAuthorization(options.AuthorizationPolicy);
         }
 
-        group.MapPost("/devices", RegisterDeviceAsync);
-        group.MapGet("/devices/{deviceId:guid}", GetDeviceAsync);
-        group.MapPost("/devices/{deviceId:guid}/revocation", RevokeDeviceAsync);
-        group.MapPost("/conversations", CreateConversationAsync);
-        group.MapPost("/envelopes", SubmitEnvelopeAsync);
-        group.MapGet("/deliveries", GetDeliveriesAsync);
-        group.MapPost("/deliveries/{messageId:guid}/acknowledgements", AcknowledgeAsync);
+        group.MapPost(SkopkaChatHttpRoutes.Devices, RegisterDeviceAsync);
+        group.MapGet($"{SkopkaChatHttpRoutes.Devices}/{{deviceId:guid}}", GetDeviceAsync);
+        group.MapPost($"{SkopkaChatHttpRoutes.Devices}/{{deviceId:guid}}/revocation", RevokeDeviceAsync);
+        group.MapPost(SkopkaChatHttpRoutes.Conversations, CreateConversationAsync);
+        group.MapPost(SkopkaChatHttpRoutes.Envelopes, SubmitEnvelopeAsync);
+        group.MapGet(SkopkaChatHttpRoutes.Deliveries, GetDeliveriesAsync);
+        group.MapPost($"{SkopkaChatHttpRoutes.Deliveries}/{{messageId:guid}}/acknowledgements", AcknowledgeAsync);
         return group;
     }
 
@@ -197,7 +196,7 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         if (existing is not null)
         {
             return HasExactParticipants(existing, identity.UserId, peerUserId)
-                ? Results.Ok(PersonalConversationResponse.FromDomain(existing))
+                ? Results.Ok(ToResponse(existing))
                 : ConflictProblem();
         }
 
@@ -210,14 +209,14 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
                 timeProvider.GetUtcNow(),
                 cancellationToken).ConfigureAwait(false);
             return Results.Json(
-                PersonalConversationResponse.FromDomain(conversation),
+                ToResponse(conversation),
                 statusCode: StatusCodes.Status201Created);
         }
         catch (ChatServerException)
         {
             existing = await conversations.GetAsync(conversationId, cancellationToken).ConfigureAwait(false);
             return existing is not null && HasExactParticipants(existing, identity.UserId, peerUserId)
-                ? Results.Ok(PersonalConversationResponse.FromDomain(existing))
+                ? Results.Ok(ToResponse(existing))
                 : ConflictProblem();
         }
         catch (ArgumentException)
@@ -296,7 +295,9 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
                 maximumCount,
                 timeProvider.GetUtcNow(),
                 cancellationToken).ConfigureAwait(false);
-            return Results.Ok(pending.Select(PendingDeliveryResponse.FromDomain).ToArray());
+            return Results.Ok(pending.Select(stored => new PendingDeliveryResponse(
+                EncryptedEnvelopeDto.FromDomain(stored.Envelope),
+                stored.AcceptedAt)).ToArray());
         }
         catch (ArgumentException)
         {
@@ -376,6 +377,12 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         UserId first,
         UserId second) =>
         first != second && conversation.Contains(first) && conversation.Contains(second);
+
+    private static PersonalConversationResponse ToResponse(PersonalConversation conversation) => new(
+        conversation.ConversationId.Value,
+        conversation.FirstUserId.Value,
+        conversation.SecondUserId.Value,
+        conversation.CreatedAt);
 
     private static IResult InvalidRequestProblem() => Results.Problem(
         statusCode: StatusCodes.Status400BadRequest,

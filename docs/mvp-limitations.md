@@ -13,7 +13,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - No groups, attachments, streaming media or reactions.
 - No push-notification provider integration.
 - No key backup, recovery, transfer or account reset protocol.
-- The optional Minimal API transport supports request/response polling only; no WebSocket or SignalR push transport is included.
+- The optional Minimal API and typed HTTP client support request/response polling only; no WebSocket or SignalR push transport is included.
 - No token issuer, token format, authentication scheme or identity-provider integration is selected by the packages.
 - No UI and no SkopiClub integration.
 - No federation, traffic padding, sealed sender or metadata hiding.
@@ -22,6 +22,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 
 - Implement `IDeviceKeyStore` with platform secure storage. Never use the in-memory store in production.
 - Configure a trusted ASP.NET Core authentication handler before mapping the optional API. Validate token signature, issuer, audience and lifetime as appropriate; never turn untrusted headers directly into claims.
+- Implement `IAccessTokenProvider` without logging or persistently copying tokens. Keep Authorization headers redacted and use the typed HTTP client as transient/scoped, not singleton.
 - Protect device registration and revocation, rate-limit all endpoints and avoid sensitive logging.
 - Deliver public-key changes to users and require security-code comparison for high-risk conversations.
 - Run migration/TTL cleanup jobs and configure retention, database encryption, backup and operational monitoring.

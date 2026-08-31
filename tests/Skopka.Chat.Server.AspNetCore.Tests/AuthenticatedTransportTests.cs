@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
+using Skopka.Chat.Transport.Http;
 
 namespace Skopka.Chat.Server.AspNetCore.Tests;
 

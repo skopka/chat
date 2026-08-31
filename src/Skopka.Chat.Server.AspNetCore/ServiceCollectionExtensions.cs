@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Skopka.Chat.Transport.Http;
 
 namespace Microsoft.Extensions.DependencyInjection;
 
@@ -23,6 +24,13 @@ public static class SkopkaChatServiceCollectionExtensions
         services.TryAddSingleton<Skopka.Chat.Server.AspNetCore.IChatPrincipalMapper,
             Skopka.Chat.Server.AspNetCore.ClaimsChatPrincipalMapper>();
         services.TryAddSingleton(TimeProvider.System);
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            if (!options.SerializerOptions.TypeInfoResolverChain.Contains(SkopkaChatHttpJsonContext.Default))
+            {
+                options.SerializerOptions.TypeInfoResolverChain.Insert(0, SkopkaChatHttpJsonContext.Default);
+            }
+        });
         return services;
     }
 }
