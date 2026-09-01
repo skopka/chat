@@ -52,6 +52,32 @@ public sealed class ChatContentTests
         Assert.DoesNotContain(reaction.Reaction, decoded.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Edit_encoding_is_deterministic_and_round_trips_without_exposing_plaintext()
+    {
+        var contentId = new ChatContentId(Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"));
+        var targetId = new ChatContentId(Guid.Parse("ffeeddcc-bbaa-9988-7766-554433221100"));
+        var edit = new ChatEditContent(contentId, targetId, ChatEditField.Text, "edited");
+
+        var encoded = ChatContentEncoding.Encode(edit);
+        var decoded = Assert.IsType<ChatEditContent>(ChatContentEncoding.Decode(encoded));
+
+        Assert.Equal(
+            "736B6F706B612E636861742E636F6E74656E74334500112233445566778899AABBCCDDEEFFFFEEDDCCBBAA998877665544332211005431656469746564",
+            Convert.ToHexString(encoded));
+        Assert.Equal(contentId, decoded.ContentId);
+        Assert.Equal(targetId, decoded.TargetContentId);
+        Assert.Equal(ChatEditField.Text, decoded.Field);
+        Assert.Equal("edited", decoded.NewValue);
+        Assert.DoesNotContain("edited", decoded.ToString(), StringComparison.Ordinal);
+
+        var clearCaption = new ChatEditContent(Id(14), Id(13), ChatEditField.AttachmentCaption, null);
+        var decodedClear = Assert.IsType<ChatEditContent>(
+            ChatContentEncoding.Decode(ChatContentEncoding.Encode(clearCaption)));
+        Assert.Equal(ChatEditField.AttachmentCaption, decodedClear.Field);
+        Assert.Null(decodedClear.NewValue);
+    }
+
     [Theory]
     [MemberData(nameof(MalformedPayloads))]
     public void Decoder_rejects_malformed_or_unsupported_content_without_reflecting_it(byte[] payload)
@@ -81,6 +107,33 @@ public sealed class ChatContentTests
             new ChatReactionContent(Id(2), Id(1), "\r", ChatReactionOperation.Add));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new ChatReactionContent(Id(2), Id(1), "x", (ChatReactionOperation)99));
+
+        var maximumEdit = new ChatEditContent(
+            Id(6),
+            Id(5),
+            ChatEditField.Text,
+            new string('a', ChatContentLimits.MaxEditTextUtf8Bytes));
+        Assert.Equal(ProtocolLimits.MaxPlaintextBytes, ChatContentEncoding.Encode(maximumEdit).Length);
+        Assert.Throws<ArgumentException>(() =>
+            new ChatEditContent(Id(2), default, ChatEditField.Text, "edit"));
+        Assert.Throws<ArgumentException>(() =>
+            new ChatEditContent(Id(2), Id(2), ChatEditField.Text, "edit"));
+        Assert.Throws<ArgumentNullException>(() =>
+            new ChatEditContent(Id(2), Id(1), ChatEditField.Text, null));
+        Assert.Throws<ArgumentException>(() =>
+            new ChatEditContent(Id(2), Id(1), ChatEditField.Text, "   "));
+        Assert.Throws<ArgumentException>(() =>
+            new ChatEditContent(Id(2), Id(1), ChatEditField.AttachmentCaption, string.Empty));
+        Assert.Throws<ArgumentException>(() =>
+            new ChatEditContent(Id(2), Id(1), ChatEditField.Text, "\ud800"));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ChatEditContent(
+                Id(2),
+                Id(1),
+                ChatEditField.Text,
+                new string('a', ChatContentLimits.MaxEditTextUtf8Bytes + 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ChatEditContent(Id(2), Id(1), (ChatEditField)99, "edit"));
     }
 
     [Fact]
@@ -258,6 +311,105 @@ public sealed class ChatContentTests
         Assert.DoesNotContain("two", conflict.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Projection_orders_author_edits_by_timestamp_then_content_id_even_before_target()
+    {
+        var targetId = Id(60);
+        var projection = new ChatConversationProjection(Conversation);
+        var laterEdit = Delivery(
+            new ChatEditContent(Id(63), targetId, ChatEditField.Text, "latest"),
+            AliceUser,
+            new DeviceId(Guid.Parse("30000000-0000-0000-0000-000000000004")),
+            Now.AddSeconds(3));
+        var earlierEdit = Delivery(
+            new ChatEditContent(Id(62), targetId, ChatEditField.Text, "earlier"),
+            AliceUser,
+            AliceDevice,
+            Now.AddSeconds(3));
+        var unauthorizedEdit = Delivery(
+            new ChatEditContent(Id(64), targetId, ChatEditField.Text, "forged"),
+            BobUser,
+            BobDevice,
+            Now.AddSeconds(4));
+        var original = Delivery(new ChatTextContent(targetId, "original"), AliceUser, AliceDevice, Now);
+
+        Assert.Equal(ChatProjectionApplyResult.Applied, projection.Apply(laterEdit));
+        Assert.Equal(ChatProjectionApplyResult.Applied, projection.Apply(unauthorizedEdit));
+        Assert.Equal(ChatProjectionApplyResult.Applied, projection.Apply(earlierEdit));
+        Assert.Equal(ChatProjectionApplyResult.Applied, projection.Apply(original));
+
+        var message = Assert.Single(projection.Snapshot());
+        Assert.Equal("latest", message.Text);
+        Assert.True(message.IsEdited);
+        Assert.Equal(laterEdit.SentAt, message.EditedAt);
+        Assert.DoesNotContain("forged", message.ToString(), StringComparison.Ordinal);
+
+        var newestEdit = Delivery(
+            new ChatEditContent(Id(61), targetId, ChatEditField.Text, "newest"),
+            AliceUser,
+            AliceDevice,
+            Now.AddSeconds(5));
+        projection.Apply(newestEdit);
+        message = Assert.Single(projection.Snapshot());
+        Assert.Equal("newest", message.Text);
+        Assert.Equal(newestEdit.SentAt, message.EditedAt);
+    }
+
+    [Fact]
+    public void Projection_ignores_edit_field_that_does_not_match_the_target_type()
+    {
+        var targetId = Id(70);
+        var projection = new ChatConversationProjection(Conversation);
+
+        projection.Apply(Delivery(new ChatTextContent(targetId, "original"), AliceUser, AliceDevice, Now));
+        projection.Apply(Delivery(
+            new ChatEditContent(Id(71), targetId, ChatEditField.AttachmentCaption, "wrong field"),
+            AliceUser,
+            AliceDevice,
+            Now.AddSeconds(1)));
+
+        var message = Assert.Single(projection.Snapshot());
+        Assert.Equal("original", message.Text);
+        Assert.False(message.IsEdited);
+        Assert.Null(message.EditedAt);
+    }
+
+    [Fact]
+    public void Projection_deduplicates_edit_fan_out_and_removes_a_conflicting_edit()
+    {
+        var targetId = Id(80);
+        var editId = Id(81);
+        var projection = new ChatConversationProjection(Conversation);
+        var original = Delivery(new ChatTextContent(targetId, "original"), AliceUser, AliceDevice, Now);
+        var edit = Delivery(
+            new ChatEditContent(editId, targetId, ChatEditField.Text, "edited"),
+            AliceUser,
+            AliceDevice,
+            Now.AddSeconds(1));
+        var fanOutCopy = new ReceivedChatContent(
+            MessageId.New(),
+            edit.ConversationId,
+            edit.SenderUserId,
+            edit.SenderDeviceId,
+            edit.SentAt,
+            new ChatEditContent(editId, targetId, ChatEditField.Text, "edited"));
+        var conflict = Delivery(
+            new ChatEditContent(editId, targetId, ChatEditField.Text, "conflict"),
+            AliceUser,
+            AliceDevice,
+            Now.AddSeconds(1));
+
+        projection.Apply(original);
+        Assert.Equal(ChatProjectionApplyResult.Applied, projection.Apply(edit));
+        Assert.Equal(ChatProjectionApplyResult.Duplicate, projection.Apply(fanOutCopy));
+        Assert.Equal(ChatProjectionApplyResult.Conflict, projection.Apply(conflict));
+
+        var message = Assert.Single(projection.Snapshot());
+        Assert.Equal("original", message.Text);
+        Assert.False(message.IsEdited);
+        Assert.Contains(editId, projection.ConflictedContentIds());
+    }
+
     public static IEnumerable<object[]> MalformedPayloads()
     {
         var valid = ChatContentEncoding.Encode(new ChatTextContent(Id(50), "safe"));
@@ -276,6 +428,16 @@ public sealed class ChatContentTests
         var emptyReaction = ChatContentEncoding.Encode(
             new ChatReactionContent(Id(52), Id(51), "x", ChatReactionOperation.Add));
         yield return [emptyReaction[..^1]];
+
+        var validEdit = ChatContentEncoding.Encode(
+            new ChatEditContent(Id(54), Id(53), ChatEditField.Text, "edit"));
+        yield return [Mutate(validEdit, 53, (byte)'X')];
+        yield return [Mutate(validEdit, 54, (byte)'2')];
+        yield return [Mutate(validEdit, 54, (byte)'0')];
+        yield return [validEdit[..55]];
+        var selfEdit = validEdit.ToArray();
+        selfEdit.AsSpan(21, 16).CopyTo(selfEdit.AsSpan(37, 16));
+        yield return [selfEdit];
     }
 
     private static byte[] Mutate(byte[] source, Index index, byte value)

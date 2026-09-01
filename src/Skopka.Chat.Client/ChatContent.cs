@@ -13,8 +13,11 @@ public static class ChatContentVersions
     /// <summary>Encrypted attachment manifests.</summary>
     public const byte V2 = 2;
 
+    /// <summary>Text and attachment-caption edit events.</summary>
+    public const byte V3 = 3;
+
     /// <summary>The latest content version understood by this package.</summary>
-    public const byte Current = V2;
+    public const byte Current = V3;
 }
 
 /// <summary>Bounds fields before typed content is encrypted or projected.</summary>
@@ -24,6 +27,11 @@ public static class ChatContentLimits
     /// Maximum UTF-8 text size, reserving space for the largest content-v1 text header.
     /// </summary>
     public const int MaxTextUtf8Bytes = ProtocolLimits.MaxPlaintextBytes - 54;
+
+    /// <summary>
+    /// Maximum UTF-8 replacement-text size, reserving space for the content-v3 edit header.
+    /// </summary>
+    public const int MaxEditTextUtf8Bytes = ProtocolLimits.MaxPlaintextBytes - 55;
 
     /// <summary>Maximum UTF-8 size of one reaction rendering token.</summary>
     public const int MaxReactionUtf8Bytes = 64;
@@ -59,6 +67,9 @@ public enum ChatContentKind : byte
 
     /// <summary>An encrypted manifest for a separately stored ciphertext blob.</summary>
     Attachment = 3,
+
+    /// <summary>An encrypted replacement for text or an attachment caption.</summary>
+    Edit = 4,
 }
 
 /// <summary>Action applied by a reaction event.</summary>
@@ -69,6 +80,16 @@ public enum ChatReactionOperation : byte
 
     /// <summary>Removes the reaction for the authenticated sender user.</summary>
     Remove = 2,
+}
+
+/// <summary>User-visible field replaced by an edit event.</summary>
+public enum ChatEditField : byte
+{
+    /// <summary>Replaces the body of a text message.</summary>
+    Text = 1,
+
+    /// <summary>Replaces or clears an attachment caption.</summary>
+    AttachmentCaption = 2,
 }
 
 /// <summary>Base type for versioned content encrypted inside an envelope.</summary>
@@ -185,6 +206,70 @@ public sealed class ChatReactionContent : ChatContent
     /// <inheritdoc />
     public override string ToString() =>
         $"ChatReactionContent(ContentId={ContentId}, Target={TargetContentId}, Operation={Operation}, Reaction=[REDACTED])";
+}
+
+/// <summary>An encrypted immutable edit directed at existing logical content.</summary>
+public sealed class ChatEditContent : ChatContent
+{
+    /// <summary>Creates a validated content-v3 edit event.</summary>
+    public ChatEditContent(
+        ChatContentId contentId,
+        ChatContentId targetContentId,
+        ChatEditField field,
+        string? newValue)
+        : base(contentId, ChatContentKind.Edit)
+    {
+        ChatContentValidation.RequireId(targetContentId, nameof(targetContentId));
+        if (targetContentId == contentId)
+        {
+            throw new ArgumentException("An edit cannot target itself.", nameof(targetContentId));
+        }
+
+        switch (field)
+        {
+            case ChatEditField.Text:
+                ArgumentException.ThrowIfNullOrWhiteSpace(newValue);
+                ChatContentValidation.RequireUtf8Length(
+                    newValue,
+                    ChatContentLimits.MaxEditTextUtf8Bytes,
+                    nameof(newValue));
+                break;
+            case ChatEditField.AttachmentCaption:
+                if (newValue is not null)
+                {
+                    if (newValue.Length == 0)
+                    {
+                        throw new ArgumentException("Use null to clear an attachment caption.", nameof(newValue));
+                    }
+
+                    ChatContentValidation.RequireUtf8Length(
+                        newValue,
+                        ChatContentLimits.MaxAttachmentCaptionUtf8Bytes,
+                        nameof(newValue));
+                }
+
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(field), "Unknown edit field.");
+        }
+
+        TargetContentId = targetContentId;
+        Field = field;
+        NewValue = newValue;
+    }
+
+    /// <summary>Logical text or attachment content being edited.</summary>
+    public ChatContentId TargetContentId { get; }
+
+    /// <summary>Field replaced by this event.</summary>
+    public ChatEditField Field { get; }
+
+    /// <summary>Replacement plaintext; null clears an attachment caption.</summary>
+    public string? NewValue { get; }
+
+    /// <inheritdoc />
+    public override string ToString() =>
+        $"ChatEditContent(ContentId={ContentId}, Target={TargetContentId}, Field={Field}, NewValue=[REDACTED])";
 }
 
 /// <summary>

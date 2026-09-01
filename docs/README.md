@@ -6,6 +6,7 @@
 - [`ui.md`](ui.md) — headless presentation model, Blazor components, theming, templates, host send boundary, and UI security limits.
 - [`attachments.md`](attachments.md) — attachment encryption, HTTP transfer, PostgreSQL/S3 storage, host authorization and UI boundaries.
 - [`media.md`](media.md) — client-side photo/video preparation, exact-file mode, FFmpeg integration and UI callback.
+- [`client-storage.md`](client-storage.md) — durable verified-event history, SQLite setup, restart replay and safe acknowledgement ordering.
 - [`releasing.md`](releasing.md) — protected tag-based publication of the coordinated NuGet package set.
 - [`protocol-compatibility.md`](protocol-compatibility.md) — protocol-v1 canonical format and package compatibility table.
 - [`../AGENTS.md`](../AGENTS.md) — authoritative instructions for coding agents.
@@ -31,5 +32,7 @@
 - [`adr/0010-headless-ui-and-blazor-components.md`](adr/0010-headless-ui-and-blazor-components.md) — framework-independent UI state and optional adaptable Blazor components.
 - [`adr/0011-encrypted-attachments-and-storage.md`](adr/0011-encrypted-attachments-and-storage.md) — content-v2 attachment manifests, chunk encryption and independent storage.
 - [`adr/0012-client-media-preparation.md`](adr/0012-client-media-preparation.md) — automatic client-side media compression and exact-file semantics.
+- [`adr/0013-encrypted-message-edits.md`](adr/0013-encrypted-message-edits.md) — immutable encrypted edit events, author checks and deterministic projection.
+- [`adr/0014-durable-client-events-and-sync.md`](adr/0014-durable-client-events-and-sync.md) — durable client journal, SQLite plaintext boundary and store/apply/ack ordering.
 
 ADRs describe accepted decisions, not production certification. Start with the threat model and MVP limitations before integrating the packages into a real host.

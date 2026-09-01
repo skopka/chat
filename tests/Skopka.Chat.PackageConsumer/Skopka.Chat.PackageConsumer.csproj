@@ -8,7 +8,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.11.0</ChatPackageVersion>
+    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.12.0</ChatPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +17,8 @@
     <PackageReference Include="Skopka.Chat.Attachments.PostgreSql" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Attachments.S3" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Client" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Client.Storage" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Client.Storage.Sqlite" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Media" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Media.FFmpeg" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.UI.Core" Version="$(ChatPackageVersion)" />

@@ -20,6 +20,8 @@ flowchart TD
     Attachments[Skopka.Chat.Attachments] --> Protocol
     Client[Skopka.Chat.Client] --> Protocol
     Client --> Attachments
+    ClientStorage[Skopka.Chat.Client.Storage] --> Client
+    ClientSqlite[Skopka.Chat.Client.Storage.Sqlite] --> ClientStorage
     Media[Skopka.Chat.Media] --> Client
     Ffmpeg[Skopka.Chat.Media.FFmpeg] --> Media
     UiCore[Skopka.Chat.UI.Core] --> Client
@@ -35,7 +37,7 @@ flowchart TD
     Persistence --> Protocol
 ```
 
-The arrows are intentional trust and dependency boundaries. In particular, Protocol is framework-independent, Server never references Client, the shared HTTP contract references Protocol only, and the HTTP client/server adapters never reference one another. Media prepares plaintext only on the client before existing attachment encryption; the optional FFmpeg adapter depends on Media, not Server or storage. UI.Core references Client only; the optional Blazor package adds the UI framework without pulling Server or Persistence into the client.
+The arrows are intentional trust and dependency boundaries. In particular, Protocol is framework-independent, Server never references Client, the shared HTTP contract references Protocol only, and the HTTP client/server adapters never reference one another. Client.Storage depends only on Client; its optional SQLite adapter does not pull server persistence into the application. Media prepares plaintext only on the client before existing attachment encryption; the optional FFmpeg adapter depends on Media, not Server or storage. UI.Core references Client only; the optional Blazor package adds the UI framework without pulling Server or Persistence into the client.
 
 ## Build and infrastructure-free tests
 
@@ -71,6 +73,7 @@ The persistence gate covers migrations, encrypted storage, concurrent identical/
 | --- | --- | --- |
 | Protocol/canonical encoding | `Skopka.Chat.Protocol.Tests` | Client + in-memory integration |
 | Client cryptography/receive | `Skopka.Chat.Client.Tests` | Protocol + in-memory integration |
+| Client durable history/sync | `Skopka.Chat.Client.Storage.Tests` | Infrastructure-free solution suite + package consumer |
 | Attachment crypto/storage | `Skopka.Chat.Client.Tests` + `Skopka.Chat.Attachments.Tests` | Both HTTP projects + required attachment PostgreSQL gate |
 | Media preparation | `Skopka.Chat.Media.Tests` | Client + Client.Http + infrastructure-free solution suite |
 | UI state/components | `Skopka.Chat.UI.Core.Tests` + `Skopka.Chat.UI.Blazor.Tests` | Infrastructure-free solution suite + package consumer |
@@ -124,7 +127,7 @@ For schema changes, generate a new EF migration. Existing migrations are append-
 
 ## Packaging and release verification
 
-The solution produces fourteen NuGet packages and fourteen symbol packages in `artifacts/packages`:
+The solution produces sixteen NuGet packages and sixteen symbol packages in `artifacts/packages`:
 
 ```powershell
 dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
@@ -137,7 +140,7 @@ $packageVersion = dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.c
 tar -xOf "artifacts/packages/Skopka.Chat.Transport.Http.$packageVersion.nupkg" Skopka.Chat.Transport.Http.nuspec
 ```
 
-Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` project is restored from the local package directory after packing and proves that all fourteen public assemblies can be consumed without project references. See [`releasing.md`](releasing.md) for the protected tag workflow.
+Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` project is restored from the local package directory after packing and proves that all sixteen public assemblies can be consumed without project references. See [`releasing.md`](releasing.md) for the protected tag workflow.
 
 ## Security review prompts
 

@@ -134,6 +134,86 @@ public sealed class ChatViewModelTests
     }
 
     [Fact]
+    public async Task Edit_own_text_emits_event_applies_echo_and_restores_previous_composer()
+    {
+        var sender = new RecordingSender(CurrentUserId, CurrentDeviceId);
+        var model = new ChatViewModel(ConversationId, CurrentUserId, sender);
+        var replyTarget = IncomingText(1, "peer message");
+        var own = OwnText(2, "own original");
+        model.Apply(replyTarget);
+        model.Apply(own);
+        model.SetDraftText("unsent draft");
+        model.BeginReply(replyTarget.Content.ContentId);
+
+        model.BeginEdit(own.Content.ContentId);
+        Assert.True(model.IsEditing);
+        Assert.Equal("own original", model.DraftText);
+        Assert.Equal(own.Content.ContentId, model.EditTarget?.ContentId);
+        Assert.Null(model.ReplyTargetItem);
+        Assert.False(model.CanSendDraft);
+        model.SetDraftText("own edited");
+
+        Assert.True(await model.TrySendDraftAsync());
+
+        var edit = Assert.IsType<ChatEditContent>(Assert.Single(sender.Sent).Content);
+        Assert.Equal(own.Content.ContentId, edit.TargetContentId);
+        Assert.Equal(ChatEditField.Text, edit.Field);
+        Assert.Equal("own edited", edit.NewValue);
+        var projected = Assert.Single(model.Messages, item => item.ContentId == own.Content.ContentId);
+        Assert.Equal("own edited", projected.Text);
+        Assert.True(projected.IsEdited);
+        Assert.False(model.IsEditing);
+        Assert.Equal("unsent draft", model.DraftText);
+        Assert.Equal(replyTarget.Content.ContentId, model.ReplyTarget?.ContentId);
+    }
+
+    [Fact]
+    public async Task Edit_expected_failure_preserves_mode_and_peer_content_cannot_be_edited()
+    {
+        var sender = new RecordingSender(CurrentUserId, CurrentDeviceId) { FailExpectedly = true };
+        var model = new ChatViewModel(ConversationId, CurrentUserId, sender);
+        var peer = IncomingText(1, "peer");
+        var own = OwnText(2, "own");
+        model.Apply(peer);
+        model.Apply(own);
+
+        Assert.Throws<ArgumentException>(() => model.BeginEdit(peer.Content.ContentId));
+        model.BeginEdit(own.Content.ContentId);
+        model.SetDraftText("changed");
+
+        Assert.False(await model.TrySendDraftAsync());
+        Assert.True(model.IsEditing);
+        Assert.Equal("changed", model.DraftText);
+        Assert.True(model.HasCommandError);
+
+        model.CancelEdit();
+        Assert.False(model.IsEditing);
+        Assert.Equal(string.Empty, model.DraftText);
+    }
+
+    [Fact]
+    public async Task Attachment_caption_edit_can_clear_the_caption()
+    {
+        var sender = new RecordingSender(CurrentUserId, CurrentDeviceId);
+        var model = new ChatViewModel(ConversationId, CurrentUserId, sender);
+        var attachment = CreateAttachment(8);
+        Assert.True(await model.SendAttachmentAsync(attachment));
+
+        model.BeginEdit(attachment.ContentId);
+        Assert.Equal("caption", model.DraftText);
+        model.SetDraftText(string.Empty);
+        Assert.True(model.CanSendDraft);
+        Assert.True(await model.TrySendDraftAsync());
+
+        var edit = Assert.IsType<ChatEditContent>(sender.Sent[1].Content);
+        Assert.Equal(ChatEditField.AttachmentCaption, edit.Field);
+        Assert.Null(edit.NewValue);
+        var projected = Assert.IsType<ProjectedChatAttachment>(Assert.Single(model.Timeline));
+        Assert.Null(projected.Caption);
+        Assert.True(projected.IsEdited);
+    }
+
+    [Fact]
     public async Task Invalid_success_echo_is_rejected_and_draft_is_not_lost()
     {
         var sender = new RecordingSender(CurrentUserId, CurrentDeviceId)
@@ -206,6 +286,15 @@ public sealed class ChatViewModelTests
             PeerDeviceId,
             DateTimeOffset.Parse("2026-09-01T10:00:00Z", System.Globalization.CultureInfo.InvariantCulture).AddMinutes(sequence),
             new ChatTextContent(Id<ChatContentId>(6, sequence), text, replyTo));
+
+    private static ReceivedChatContent OwnText(int sequence, string text) =>
+        new(
+            Id<MessageId>(5, sequence),
+            ConversationId,
+            CurrentUserId,
+            CurrentDeviceId,
+            DateTimeOffset.Parse("2026-09-01T10:00:00Z", System.Globalization.CultureInfo.InvariantCulture).AddMinutes(sequence),
+            new ChatTextContent(Id<ChatContentId>(6, sequence), text));
 
     private static ChatAttachmentContent CreateAttachment(int sequence)
     {

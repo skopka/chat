@@ -27,6 +27,8 @@ The raw `EncryptTextAsync`, `EncryptAsync`, `DecryptAsync` and `ReceiveAsync` AP
 - The envelope signature authenticates the exact ciphertext and sender device. After decryption, the content parser enforces a separate version and bounds; this does not change protocol-v1 canonical signing or AEAD bytes.
 - Reaction ordering uses sender-controlled authenticated time. A malicious sender can manipulate only that user's projected reaction state; it cannot forge another user. Host UI may surface implausible timestamps.
 - Projection state and decrypted content are plaintext. Durable storage, retention, notification redaction and memory/process protection remain host responsibilities.
-- The in-memory projection is a reducer, not an authoritative durable history store. Delivery remains at-least-once and `IReceivedMessageStore` remains the transactional local commit boundary.
+- The in-memory projection is a reducer, not an authoritative durable history store. Delivery remains at-least-once; `IReceivedMessageStore` remains the low-level `ChatReceiver` commit boundary, while durable typed history and acknowledgement ordering are defined later by [ADR 0014](0014-durable-client-events-and-sync.md).
 - The existing coverage-guided harness instruments both the strict HTTP JSON boundary and this content decoder. Golden bytes, hostile truncation/version/Unicode cases and an opaque server round trip are release tests.
 - Adding or reinterpreting content-v1 fields requires a new content version. Changing the outer envelope canonical representation still requires a new protocol version under ADR 0001.
+
+Content-v3 immutable edit events were added later without changing content v1; their exact bytes and author-folding rules are defined by [ADR 0013](0013-encrypted-message-edits.md).

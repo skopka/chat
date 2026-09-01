@@ -1,7 +1,13 @@
 <article class="@AttachmentClass" data-content-id="@Attachment.ContentId" aria-label="@ResolvedSenderLabel">
     <header class="skopka-chat-message__header">
         <span class="skopka-chat-message__sender">@ResolvedSenderLabel</span>
-        <time datetime="@Attachment.SentAt.ToString("O", CultureInfo.InvariantCulture)">@ResolvedTime</time>
+        <span class="skopka-chat-message__time">
+            <time datetime="@Attachment.SentAt.ToString("O", CultureInfo.InvariantCulture)">@ResolvedTime</time>
+            @if (Attachment.IsEdited)
+            {
+                <span class="skopka-chat-message__edited">@Strings.Edited</span>
+            }
+        </span>
     </header>
 
     @if (Attachment.ReplyToContentId is { } replyId)
@@ -64,7 +70,11 @@
                             @onclick="() => ToggleReactionAsync(reaction)">@reaction</button>
                 }
             </div>
-            <button type="button" class="skopka-chat-message__action" @onclick="BeginReply">@Strings.Reply</button>
+            <button type="button" class="skopka-chat-message__action" disabled="@_commandPending" @onclick="BeginReply">@Strings.Reply</button>
+            @if (IsOwnAttachment)
+            {
+                <button type="button" class="skopka-chat-message__action" disabled="@_commandPending" @onclick="BeginEdit">@Strings.Edit</button>
+            }
         </footer>
     }
 </article>
@@ -130,6 +140,8 @@
     }
 
     private void BeginReply() => ViewModel.BeginReply(Attachment.ContentId);
+
+    private void BeginEdit() => ViewModel.BeginEdit(Attachment.ContentId);
 
     private Task DownloadAsync() => DownloadRequested.InvokeAsync(Attachment);
 

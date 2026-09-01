@@ -38,6 +38,8 @@ Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitatio
 | `src/Skopka.Chat.Attachments.PostgreSql` | Isolated bounded `bytea` attachment storage and migration | Attachments + EF Core/Npgsql |
 | `src/Skopka.Chat.Attachments.S3` | S3-compatible immutable encrypted-object storage | Attachments + reviewed AWS S3 SDK |
 | `src/Skopka.Chat.Client` | Device identity, key storage abstractions, NSec envelope/file cryptography, typed encrypted content/projection, fingerprints, receive deduplication, `IChatTransport` | Protocol + Attachments, plus the reviewed crypto dependency |
+| `src/Skopka.Chat.Client.Storage` | Durable verified-event journal contracts, projection replay and store/apply/ack coordinator | Client only; never transport, server or a database provider |
+| `src/Skopka.Chat.Client.Storage.Sqlite` | Local SQLite implementation of the verified-event journal | Client.Storage + reviewed SQLite provider; never server persistence |
 | `src/Skopka.Chat.Media` | Client-side media preparation contracts and prepare/encrypt/upload orchestration | Client only; never transport, server, persistence, or a media executable |
 | `src/Skopka.Chat.Media.FFmpeg` | Optional FFmpeg photo/video transformer over a host-protected plaintext work directory | Media only; the host supplies and maintains the executable |
 | `src/Skopka.Chat.UI.Core` | Framework-independent conversation presentation state and host-owned send boundary | Client only; never transport, server, persistence, or a UI framework |
@@ -65,10 +67,11 @@ Do not solve dependency cycles by moving client cryptography into Protocol or by
 - `AddSkopkaChatAspNetCore` applies that strict profile to shared Minimal API `HttpJsonOptions`; document compatibility implications if this integration changes.
 - Keep request/response byte bounds before expensive parsing or cryptographic work. Protocol byte-array length validation remains authoritative after Base64 decoding.
 - Preserve deterministic ordering. PostgreSQL pending delivery is ordered by `accepted_at`, then `message_id`.
-- Typed content is parsed only after envelope authentication. Preserve its separate version, strict UTF-8 and bounds; do not treat a forward marker as verified original attribution or collapse recipient-specific `MessageId` into logical `ChatContentId`.
+- Typed content is parsed only after envelope authentication. Preserve its separate version, strict UTF-8 and bounds; do not treat a forward marker as verified original attribution or collapse recipient-specific `MessageId` into logical `ChatContentId`. Edit events apply only to the original authenticated sender user's text/caption, may arrive before their target, and never rewrite server ciphertext.
 - Attachment content v2 and chunk framing v1 are canonical security formats. Keep file key/name/MIME/caption out of server/storage metadata, never reuse a nonce/index pair, validate exact length/hash before immutable storage, and require callers to discard partial plaintext destinations after failure.
 - Media preparation is client-side plaintext processing before attachment encryption. `File` mode must be byte-exact and never invoke FFmpeg; `Auto` must safely retain the original when transformation is unavailable or not smaller. Use generated paths only, generic failures, direct process arguments without a shell, and a host-protected working directory with bounded time/disk/concurrency and startup cleanup.
 - UI packages handle decrypted managed strings. Keep messages HTML-encoded by default, retain only generic expected-failure state, and keep encryption, device fan-out, protected history and transport errors behind the host-owned `IChatContentSender` boundary.
+- Durable typed receive must remain authenticate/decrypt → atomic event store/compare → idempotent apply → acknowledge. SQLite client history is plaintext (including attachment keys); keep its schema versioned, reads bounded/paged, errors generic and file/database protection explicitly host-owned.
 - Treat EF migrations as append-only history. Add a new migration for schema/index changes; do not rewrite a migration that may already have been applied.
 - Match the existing xUnit naming style: descriptive method names with underscores and deterministic data. Security regressions should assert both rejection and absence of state/log/exception reflection.
 - Avoid speculative abstractions, unrelated cleanup, or new production claims outside the requested scope.
@@ -135,6 +138,7 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Re
 - Protocol or cryptography: run Protocol, Client, and in-memory integration tests; update compatibility/threat documentation and golden vectors when applicable.
 - Typed client content/projection: run Client and in-memory integration tests, replay the fuzz corpus (and AFL++ when available), preserve content-version golden bytes, and update compatibility/threat documentation.
 - UI state/components: run both UI test projects, verify host templates and localized strings remain replaceable, and prove the UI assemblies do not reference Server or Persistence.
+- Client event storage/synchronization: run `Skopka.Chat.Client.Storage.Tests`; prove independent-writer atomicity, exact duplicate/conflict behavior, restart replay, authentication-before-storage and no acknowledgement before durable apply.
 - Server rules: run Server and in-memory integration tests; prove rejection before persistence.
 - HTTP DTO/parser/client/server changes: run both HTTP unit projects, fuzz corpus replay (and AFL++ when available), and `Skopka.Chat.Http.IntegrationTests`; cover malformed and hostile inputs on both sides.
 - PostgreSQL query/model/migration changes: run the complete PostgreSQL project against a disposable database and the PostgreSQL-backed HTTP integration.
@@ -155,6 +159,8 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Re
 - `docs/adr/0009-encrypted-content-events.md` defines typed content IDs, replies, forward/reaction semantics and projection conflicts separately from the outer protocol version.
 - `docs/adr/0011-encrypted-attachments-and-storage.md` defines content-v2 manifests, chunk framing, storage visibility and PostgreSQL/S3/HTTP boundaries.
 - `docs/adr/0012-client-media-preparation.md` defines client-only photo/video transformation, send modes, plaintext work files and unchanged content-v2 compatibility.
+- `docs/adr/0013-encrypted-message-edits.md` defines content-v3 edit bytes, author checks, deterministic folding and UI edit semantics.
+- `docs/adr/0014-durable-client-events-and-sync.md` defines verified local history, SQLite plaintext storage and store/apply/ack ordering.
 
 Update documentation in the same change when public APIs, package boundaries, protocol behavior, security assumptions, deployment responsibilities, migrations, or verification commands change.
 
@@ -167,7 +173,7 @@ Before a requested release or version commit:
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly fourteen versioned `.nupkg` and fourteen matching `.snupkg` files were produced in `artifacts/packages`, run the package consumer, and ensure the working tree is clean.
+6. Confirm exactly sixteen versioned `.nupkg` and sixteen matching `.snupkg` files were produced in `artifacts/packages`, run the package consumer, and ensure the working tree is clean.
 
 Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 

@@ -18,6 +18,9 @@ public sealed class ChatViewModel
     private IReadOnlyList<IProjectedChatItem> _timeline = Array.Empty<IProjectedChatItem>();
     private string _draftText = string.Empty;
     private ChatContentId? _replyToContentId;
+    private ChatContentId? _editTargetContentId;
+    private string? _draftBeforeEdit;
+    private ChatContentId? _replyBeforeEdit;
     private long _draftRevision;
     private bool _isSendingDraft;
     private bool _hasCommandError;
@@ -113,6 +116,42 @@ public sealed class ChatViewModel
         }
     }
 
+    /// <summary>Text message currently being edited, if any.</summary>
+    public ProjectedChatMessage? EditTarget
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return FindMessage(_editTargetContentId);
+            }
+        }
+    }
+
+    /// <summary>Text or attachment whose user-visible text is currently being edited.</summary>
+    public IProjectedChatItem? EditTargetItem
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return FindItem(_editTargetContentId);
+            }
+        }
+    }
+
+    /// <summary>Whether the composer is editing existing content.</summary>
+    public bool IsEditing
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _editTargetContentId.HasValue;
+            }
+        }
+    }
+
     /// <summary>Whether the composer currently has a send operation in flight.</summary>
     public bool IsSendingDraft
     {
@@ -146,7 +185,7 @@ public sealed class ChatViewModel
         {
             lock (_gate)
             {
-                return !_isSendingDraft && !string.IsNullOrWhiteSpace(_draftText);
+                return CanSendDraftCore();
             }
         }
     }
@@ -177,10 +216,10 @@ public sealed class ChatViewModel
     public void SetDraftText(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
-        ValidateDraft(value);
         bool changed;
         lock (_gate)
         {
+            ValidateDraft(value, FindItem(_editTargetContentId));
             changed = !string.Equals(_draftText, value, StringComparison.Ordinal);
             if (changed)
             {
@@ -212,10 +251,87 @@ public sealed class ChatViewModel
                 throw new ArgumentException("Reply target is not present in this conversation.", nameof(contentId));
             }
 
-            changed = _replyToContentId != contentId;
+            changed = _replyToContentId != contentId || _editTargetContentId.HasValue;
             if (changed)
             {
+                RestoreComposerAfterEditCore();
                 _replyToContentId = contentId;
+                _draftRevision++;
+                _hasCommandError = false;
+            }
+        }
+
+        if (changed)
+        {
+            OnStateChanged();
+        }
+    }
+
+    /// <summary>
+    /// Loads an own projected text body or attachment caption into the composer for editing.
+    /// The previous unsent draft and reply target are restored after save or cancel.
+    /// </summary>
+    public void BeginEdit(ChatContentId contentId)
+    {
+        if (contentId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Content ID must not be empty.", nameof(contentId));
+        }
+
+        bool changed;
+        lock (_gate)
+        {
+            if (_isSendingDraft)
+            {
+                throw new InvalidOperationException("The composer cannot change mode while a send is in progress.");
+            }
+
+            var target = FindItem(contentId)
+                ?? throw new ArgumentException("Edit target is not present in this conversation.", nameof(contentId));
+            if (target.SenderUserId != CurrentUserId)
+            {
+                throw new ArgumentException("Only own content can be edited.", nameof(contentId));
+            }
+
+            var editableValue = target switch
+            {
+                ProjectedChatMessage message => message.Text,
+                ProjectedChatAttachment attachment => attachment.Caption ?? string.Empty,
+                _ => throw new ArgumentException("Content type cannot be edited.", nameof(contentId)),
+            };
+            changed = _editTargetContentId != contentId;
+            if (changed)
+            {
+                if (!_editTargetContentId.HasValue)
+                {
+                    _draftBeforeEdit = _draftText;
+                    _replyBeforeEdit = _replyToContentId;
+                }
+
+                _editTargetContentId = contentId;
+                _draftText = editableValue;
+                _replyToContentId = null;
+                _draftRevision++;
+                _hasCommandError = false;
+            }
+        }
+
+        if (changed)
+        {
+            OnStateChanged();
+        }
+    }
+
+    /// <summary>Leaves edit mode and restores the draft/reply state that preceded it.</summary>
+    public void CancelEdit()
+    {
+        bool changed;
+        lock (_gate)
+        {
+            changed = _editTargetContentId.HasValue;
+            if (changed)
+            {
+                RestoreComposerAfterEditCore();
                 _draftRevision++;
                 _hasCommandError = false;
             }
@@ -264,11 +380,11 @@ public sealed class ChatViewModel
     }
 
     /// <summary>
-    /// Sends the current draft. Returns false without calling the host when the draft is blank.
+    /// Sends the current draft or an edit event. Returns false without calling the host when no valid change exists.
     /// </summary>
     public async ValueTask<bool> TrySendDraftAsync(CancellationToken cancellationToken = default)
     {
-        ChatTextContent content;
+        ChatContent content;
         long revision;
         lock (_gate)
         {
@@ -277,12 +393,12 @@ public sealed class ChatViewModel
                 throw new InvalidOperationException("A draft send is already in progress.");
             }
 
-            if (string.IsNullOrWhiteSpace(_draftText))
+            if (!CanSendDraftCore())
             {
                 return false;
             }
 
-            content = new ChatTextContent(ChatContentId.New(), _draftText, _replyToContentId);
+            content = CreateComposerContent();
             revision = _draftRevision;
             _isSendingDraft = true;
             _hasCommandError = false;
@@ -315,8 +431,16 @@ public sealed class ChatViewModel
         {
             if (_draftRevision == revision)
             {
-                _draftText = string.Empty;
-                _replyToContentId = null;
+                if (content is ChatEditContent)
+                {
+                    RestoreComposerAfterEditCore();
+                }
+                else
+                {
+                    _draftText = string.Empty;
+                    _replyToContentId = null;
+                }
+
                 _draftRevision++;
             }
 
@@ -467,6 +591,10 @@ public sealed class ChatViewModel
                 first.TargetContentId == second.TargetContentId &&
                 first.Reaction == second.Reaction &&
                 first.Operation == second.Operation,
+            (ChatEditContent first, ChatEditContent second) =>
+                first.TargetContentId == second.TargetContentId &&
+                first.Field == second.Field &&
+                first.NewValue == second.NewValue,
             (ChatAttachmentContent first, ChatAttachmentContent second) =>
                 first.AttachmentId == second.AttachmentId &&
                 first.FileName == second.FileName &&
@@ -513,6 +641,12 @@ public sealed class ChatViewModel
             _replyToContentId = null;
             _draftRevision++;
         }
+
+        if (_editTargetContentId is not null && FindItem(_editTargetContentId) is null)
+        {
+            RestoreComposerAfterEditCore();
+            _draftRevision++;
+        }
     }
 
     private ProjectedChatMessage? FindMessage(ChatContentId? contentId) =>
@@ -525,7 +659,56 @@ public sealed class ChatViewModel
             ? null
             : _timeline.FirstOrDefault(item => item.ContentId == contentId.Value);
 
-    private static void ValidateDraft(string value)
+    private bool CanSendDraftCore()
+    {
+        if (_isSendingDraft)
+        {
+            return false;
+        }
+
+        return FindItem(_editTargetContentId) switch
+        {
+            ProjectedChatMessage message =>
+                !string.IsNullOrWhiteSpace(_draftText) &&
+                !string.Equals(_draftText, message.Text, StringComparison.Ordinal),
+            ProjectedChatAttachment attachment =>
+                !string.Equals(NormalizeCaption(_draftText), attachment.Caption, StringComparison.Ordinal),
+            _ => !string.IsNullOrWhiteSpace(_draftText),
+        };
+    }
+
+    private ChatContent CreateComposerContent() => FindItem(_editTargetContentId) switch
+    {
+        ProjectedChatMessage message => new ChatEditContent(
+            ChatContentId.New(),
+            message.ContentId,
+            ChatEditField.Text,
+            _draftText),
+        ProjectedChatAttachment attachment => new ChatEditContent(
+            ChatContentId.New(),
+            attachment.ContentId,
+            ChatEditField.AttachmentCaption,
+            NormalizeCaption(_draftText)),
+        _ => new ChatTextContent(ChatContentId.New(), _draftText, _replyToContentId),
+    };
+
+    private void RestoreComposerAfterEditCore()
+    {
+        if (!_editTargetContentId.HasValue)
+        {
+            return;
+        }
+
+        _draftText = _draftBeforeEdit ?? string.Empty;
+        _replyToContentId = _replyBeforeEdit is { } reply && FindItem(reply) is not null ? reply : null;
+        _editTargetContentId = null;
+        _draftBeforeEdit = null;
+        _replyBeforeEdit = null;
+    }
+
+    private static string? NormalizeCaption(string value) => value.Length == 0 ? null : value;
+
+    private static void ValidateDraft(string value, IProjectedChatItem? editTarget)
     {
         int utf8Length;
         try
@@ -537,7 +720,13 @@ public sealed class ChatViewModel
             throw new ArgumentException("Draft must contain valid Unicode.", nameof(value));
         }
 
-        if (utf8Length > ChatContentLimits.MaxTextUtf8Bytes)
+        var maximumBytes = editTarget switch
+        {
+            ProjectedChatMessage => ChatContentLimits.MaxEditTextUtf8Bytes,
+            ProjectedChatAttachment => ChatContentLimits.MaxAttachmentCaptionUtf8Bytes,
+            _ => ChatContentLimits.MaxTextUtf8Bytes,
+        };
+        if (utf8Length > maximumBytes)
         {
             throw new ArgumentOutOfRangeException(nameof(value), "Draft exceeds the encrypted text limit.");
         }

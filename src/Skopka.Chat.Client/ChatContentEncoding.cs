@@ -21,8 +21,13 @@ public static class ChatContentEncoding
     private const byte TextKind = (byte)'T';
     private const byte ReactionKind = (byte)'R';
     private const byte AttachmentKind = (byte)'A';
+    private const byte EditKind = (byte)'E';
     private const byte AddReaction = (byte)'+';
     private const byte RemoveReaction = (byte)'-';
+    private const byte EditText = (byte)'T';
+    private const byte EditAttachmentCaption = (byte)'C';
+    private const byte ValueAbsent = (byte)'0';
+    private const byte ValuePresent = (byte)'1';
 
     /// <summary>Encodes validated content into a bounded deterministic plaintext payload.</summary>
     public static byte[] Encode(ChatContent content)
@@ -50,6 +55,12 @@ public static class ChatContentEncoding
                 output.WriteByte(AttachmentKind);
                 WriteGuid(output, attachment.ContentId.Value);
                 WriteAttachment(output, attachment);
+                break;
+            case ChatEditContent edit:
+                output.WriteByte((byte)('0' + ChatContentVersions.V3));
+                output.WriteByte(EditKind);
+                WriteGuid(output, edit.ContentId.Value);
+                WriteEdit(output, edit);
                 break;
             default:
                 throw new ArgumentException("Unsupported chat content type.", nameof(content));
@@ -102,6 +113,7 @@ public static class ChatContentEncoding
             ((byte)('0' + ChatContentVersions.V1), TextKind) => ReadText(contentId, remaining),
             ((byte)('0' + ChatContentVersions.V1), ReactionKind) => ReadReaction(contentId, remaining),
             ((byte)('0' + ChatContentVersions.V2), AttachmentKind) => ReadAttachment(contentId, remaining),
+            ((byte)('0' + ChatContentVersions.V3), EditKind) => ReadEdit(contentId, remaining),
             _ => throw new ChatContentFormatException(),
         };
     }
@@ -188,6 +200,48 @@ public static class ChatContentEncoding
             replyTo);
     }
 
+    private static ChatEditContent ReadEdit(ChatContentId contentId, ReadOnlySpan<byte> remaining)
+    {
+        var targetContentId = ReadContentId(ref remaining);
+        var field = ReadByte(ref remaining) switch
+        {
+            EditText => ChatEditField.Text,
+            EditAttachmentCaption => ChatEditField.AttachmentCaption,
+            _ => throw new ChatContentFormatException(),
+        };
+        var hasValue = ReadByte(ref remaining) switch
+        {
+            ValueAbsent => false,
+            ValuePresent => true,
+            _ => throw new ChatContentFormatException(),
+        };
+        if (field == ChatEditField.Text && !hasValue)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        if (!hasValue)
+        {
+            if (!remaining.IsEmpty)
+            {
+                throw new ChatContentFormatException();
+            }
+
+            return new ChatEditContent(contentId, targetContentId, field, null);
+        }
+
+        var maximumBytes = field == ChatEditField.Text
+            ? ChatContentLimits.MaxEditTextUtf8Bytes
+            : ChatContentLimits.MaxAttachmentCaptionUtf8Bytes;
+        if (remaining.Length > maximumBytes)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        var newValue = ChatContentValidation.StrictUtf8.GetString(remaining);
+        return new ChatEditContent(contentId, targetContentId, field, newValue);
+    }
+
     private static void WriteText(Stream output, ChatTextContent content)
     {
         var flags = (content.ReplyToContentId.HasValue ? 1 : 0) | (content.IsForwarded ? 2 : 0);
@@ -228,6 +282,22 @@ public static class ChatContentEncoding
         if (content.Caption is { } caption)
         {
             WriteLengthPrefixedUtf8(output, caption);
+        }
+    }
+
+    private static void WriteEdit(Stream output, ChatEditContent content)
+    {
+        WriteGuid(output, content.TargetContentId.Value);
+        output.WriteByte(content.Field switch
+        {
+            ChatEditField.Text => EditText,
+            ChatEditField.AttachmentCaption => EditAttachmentCaption,
+            _ => throw new InvalidOperationException("Unsupported edit field."),
+        });
+        output.WriteByte(content.NewValue is null ? ValueAbsent : ValuePresent);
+        if (content.NewValue is { } newValue)
+        {
+            WriteUtf8(output, newValue);
         }
     }
 

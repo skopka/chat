@@ -4,7 +4,7 @@ Status: accepted for protocol version 1 (MVP), updated 2026-09-01.
 
 ## Scope and assets
 
-Skopka.Chat v1 protects the contents and authenticity of one-to-one encrypted events sent between individually identified devices. Typed client content may represent text, replies, non-provenance forwards, reaction changes and content-v2 attachment manifests. Each device owns an X25519 encryption key and an Ed25519 signing key. Private keys remain on that device behind the `IDeviceKeyStore` abstraction. The server stores only public device data, routing metadata, ciphertext and delivery state; an optional attachment provider stores separately encrypted blobs.
+Skopka.Chat v1 protects the contents and authenticity of one-to-one encrypted events sent between individually identified devices. Typed client content may represent text, replies, non-provenance forwards, reaction changes, content-v2 attachment manifests and content-v3 text/caption edits. Each device owns an X25519 encryption key and an Ed25519 signing key. Private keys remain on that device behind the `IDeviceKeyStore` abstraction. The server stores only public device data, routing metadata, ciphertext and delivery state; an optional attachment provider stores separately encrypted blobs.
 
 The assets are message/file plaintext, device and attachment keys, decrypted file metadata, message/file integrity, sender authenticity, and the user's ability to notice that a device key changed by comparing a fingerprint/security code out of band.
 
@@ -13,6 +13,7 @@ The assets are message/file plaintext, device and attachment keys, decrypted fil
 - The network, server, PostgreSQL operators and S3-compatible provider are untrusted for message/file confidentiality.
 - A malicious or compromised server may read, drop, delay, duplicate, reorder or replace records and public-key directory responses.
 - The cryptographic library and the client's local secure-storage implementation are trusted dependencies.
+- The optional SQLite provider and the host-selected local database location/protection are trusted for endpoint confidentiality and durability.
 - Endpoints are trusted only while the device and its private keys remain uncompromised.
 - Denial of service, traffic analysis, a malicious application process and compromised build/dependency infrastructure are outside the confidentiality guarantee.
 
@@ -46,7 +47,7 @@ The library deliberately supplies no filesystem key store. A host must implement
 
 ## Version 1 limitations and deferred work
 
-- One-to-one text, reply, forward-marker, reaction and attachment-manifest events only; no message edits/deletes or groups.
+- One-to-one text, reply, forward-marker, reaction, attachment-manifest and text/caption edit events only; no message deletion, edit history UI or groups.
 - No Double Ratchet, forward secrecy guarantee, post-compromise security, deniability or Signal interoperability.
 - No attachment forwarding, resumable/multipart upload, HTTP range playback, thumbnails, automatic preview, push notifications, key backup/recovery or server federation.
 - Multi-device users are representable, but the sender creates one envelope per recipient device; device fan-out policy belongs to the host application.
@@ -64,11 +65,19 @@ The package does not log or persist access tokens and does not select a token fo
 
 ## Typed content and local projection boundary
 
-Typed content is decoded only after protocol-v1 signature verification and AEAD authentication. Its content ID, reply target, forward marker, reaction target and reaction token are inside ciphertext and are not available to the server. The strict content-v1 parser applies fixed discriminators, strict UTF-8 and byte bounds and returns a generic format exception for malformed authenticated bytes.
+Typed content is decoded only after protocol-v1 signature verification and AEAD authentication. Its content ID, reply/edit target, forward marker, edit field/value, reaction target and reaction token are inside ciphertext and are not available to the server. Strict versioned parsers apply fixed discriminators, strict UTF-8 and byte bounds and return a generic format exception for malformed authenticated bytes.
 
 `IsForwarded` authenticates only the current sender's assertion that text was copied. It carries no original author or signature and must not be rendered as verified provenance. Reaction state is scoped to the authenticated sender user from the public device directory; a sender-controlled timestamp can reorder only that user's own reaction. A reused content ID with conflicting authenticated data is excluded by the in-memory projection instead of silently replacing plaintext.
 
-The projection, its snapshots and any host persistence contain plaintext. The library does not encrypt local history, synchronize it between the user's devices, enforce retention or redact host UI/notifications. Applications must feed the projection only content returned by `ReceiveContentAsync` or equivalently verified protected local records.
+Edits are folded only for the original authenticated sender user and the matching text/caption field. Another authenticated device for that same user is accepted; other-user edits are ignored. Edit events may arrive before their target and the greatest authenticated sender timestamp/content ID wins. Sender time is not trusted wall-clock evidence, and the server cannot enforce the author rule because the target is encrypted.
+
+The projection, its snapshots, original values, applied edit values and any host persistence contain plaintext. The library does not encrypt local history, synchronize it between the user's devices, enforce retention or redact host UI/notifications. Applications must feed the projection only content returned by `ReceiveContentAsync`, `ChatSyncCoordinator` or equivalently verified protected local records.
+
+## Durable client history boundary
+
+`ChatSyncCoordinator` authenticates/decrypts and strictly decodes an envelope before calling `IChatEventStore`, then applies the committed event through an idempotent `IChatEventApplier` before acknowledgement. A store conflict or any failure before acknowledgement leaves the server delivery pending. Exact retries are deliberately reapplied, and startup replay may repeat a prefix after an applier failure, so non-idempotent host side effects are outside the guarantee. This is durable at-least-once projection, not exactly-once execution.
+
+`SqliteChatEventStore` stores sender/delivery metadata and canonical decrypted content. The content BLOB exposes text, reactions, edits, file metadata and attachment decryption keys to anyone who can read the local database. The adapter does not store device private keys or tokens and does not enable SQLite encryption. File permissions, full-disk/platform/database encryption, retention, secure deletion, backup, corruption recovery and exclusion from crash/telemetry uploads belong to the host. The native SQLite provider becomes part of the endpoint dependency trust base.
 
 ## Attachment and storage boundary
 
@@ -86,7 +95,7 @@ The FFmpeg adapter uses generated internal paths and direct argument-list invoca
 
 ## Optional UI boundary
 
-`Skopka.Chat.UI.Core` stores decrypted projection snapshots, composer drafts and reply state in managed memory. `IChatContentSender` is a host boundary: its implementation sees plaintext, chooses recipient devices, encrypts and transports content, and creates a matching authenticated local echo. An implementation that logs input, reuses one envelope `MessageId` across devices, trusts an unauthenticated device directory or reflects remote errors into UI defeats documented guarantees outside the core cryptography.
+`Skopka.Chat.UI.Core` stores decrypted projection snapshots, composer/reply/edit drafts and pre-edit composer state in managed memory. `IChatContentSender` is a host boundary: its implementation sees plaintext, chooses recipient devices, encrypts and transports content, and creates a matching authenticated local echo. An implementation that logs input, reuses one envelope `MessageId` across devices, trusts an unauthenticated device directory or reflects remote errors into UI defeats documented guarantees outside the core cryptography.
 
 The default Blazor components render message, attachment metadata and reaction text through Razor encoding and retain only a generic expected-failure marker. They never automatically embed a storage URL. The optional browser media callback sees `IBrowserFile` plaintext and must consume it with an explicit limit; in Blazor Server it also crosses server-side circuit memory. Custom `MessageTemplate`, `AttachmentTemplate` and `ComposerTemplate` content is host code and can introduce DOM injection, plaintext logging, unsafe media loading or third-party disclosure, especially through raw markup. Applications must audit callbacks/templates, bound circuit/component/object-URL lifetime, protect local history and keep notifications and telemetry redacted.
 
@@ -98,6 +107,6 @@ Idempotent control/download operations have bounded transient retries. Attachmen
 
 ## PostgreSQL and CI boundary
 
-PostgreSQL persists public device keys, conversation/routing metadata, ciphertext, authentication data and delivery state. The optional independent attachment context may additionally persist bounded attachment ciphertext in `bytea`; S3-compatible storage is recommended for large media. Database/bucket encryption, credentials, network isolation, retention, backups, lifecycle policy and operator access remain deployment responsibilities; E2EE does not hide metadata from operators. Delivery is at-least-once: concurrent polling may expose the same ciphertext envelope to multiple workers until the first acknowledgement succeeds, so recipient-side transactional deduplication is part of the trust boundary.
+PostgreSQL persists public device keys, conversation/routing metadata, ciphertext, authentication data and delivery state. The optional independent attachment context may additionally persist bounded attachment ciphertext in `bytea`; S3-compatible storage is recommended for large media. Database/bucket encryption, credentials, network isolation, retention, backups, lifecycle policy and operator access remain deployment responsibilities; E2EE does not hide metadata from operators. Delivery is at-least-once: concurrent polling may expose the same ciphertext envelope to multiple workers until the first acknowledgement succeeds, so recipient-side transactional deduplication or the durable client-event coordinator is part of the trust boundary.
 
 The automated PostgreSQL service is a disposable correctness gate, not evidence of production availability or hardening. It verifies migrations, bounded insert/acknowledgement races, deterministic selection, TTL deletion and the complete authenticated HTTP round trip without granting the server any decryption capability.

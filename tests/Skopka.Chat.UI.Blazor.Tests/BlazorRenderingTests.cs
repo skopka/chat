@@ -23,6 +23,8 @@ public sealed class BlazorRenderingTests
         new(Guid.Parse("20000000-0000-0000-0000-000000000002"));
     private static readonly DeviceId PeerDeviceId =
         new(Guid.Parse("30000000-0000-0000-0000-000000000002"));
+    private static readonly DeviceId CurrentDeviceId =
+        new(Guid.Parse("30000000-0000-0000-0000-000000000001"));
 
     [Fact]
     public void Blazor_assembly_depends_on_ui_core_but_not_server_or_persistence()
@@ -59,6 +61,44 @@ public sealed class BlazorRenderingTests
         Assert.Contains("&lt;script&gt;private text&lt;/script&gt;", html, StringComparison.Ordinal);
         Assert.DoesNotContain("<script>private text</script>", html, StringComparison.Ordinal);
         Assert.Contains("10:00", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Own_edited_message_renders_marker_action_and_edit_composer_mode()
+    {
+        var model = CreateModel();
+        var contentId = new ChatContentId(Guid.Parse("50000000-0000-0000-0000-000000000010"));
+        model.Apply(new ReceivedChatContent(
+            new MessageId(Guid.Parse("40000000-0000-0000-0000-000000000010")),
+            ConversationId,
+            CurrentUserId,
+            CurrentDeviceId,
+            DateTimeOffset.Parse("2026-09-01T10:00:00Z", System.Globalization.CultureInfo.InvariantCulture),
+            new ChatTextContent(contentId, "original")));
+        model.Apply(new ReceivedChatContent(
+            new MessageId(Guid.Parse("40000000-0000-0000-0000-000000000011")),
+            ConversationId,
+            CurrentUserId,
+            CurrentDeviceId,
+            DateTimeOffset.Parse("2026-09-01T10:01:00Z", System.Globalization.CultureInfo.InvariantCulture),
+            new ChatEditContent(
+                new ChatContentId(Guid.Parse("50000000-0000-0000-0000-000000000011")),
+                contentId,
+                ChatEditField.Text,
+                "edited body")));
+        model.BeginEdit(contentId);
+
+        var html = await RenderAsync<SkopkaChat>(new Dictionary<string, object?>
+        {
+            [nameof(SkopkaChat.ViewModel)] = model,
+        });
+
+        Assert.Contains("edited body", html, StringComparison.Ordinal);
+        Assert.Contains("skopka-chat-message__edited", html, StringComparison.Ordinal);
+        Assert.Contains(">edited</span>", html, StringComparison.Ordinal);
+        Assert.Contains(">Edit</button>", html, StringComparison.Ordinal);
+        Assert.Contains("Editing message", html, StringComparison.Ordinal);
+        Assert.Contains(">Save</button>", html, StringComparison.Ordinal);
     }
 
     [Fact]

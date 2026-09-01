@@ -69,6 +69,15 @@
     font-weight: 650;
 }
 
+::deep .skopka-chat-message__time {
+    display: inline-flex;
+    gap: 0.35rem;
+}
+
+::deep .skopka-chat-message__edited {
+    font-style: italic;
+}
+
 ::deep .skopka-chat-message__forwarded,
 ::deep .skopka-chat-message__reply-label {
     color: var(--skopka-chat-muted);

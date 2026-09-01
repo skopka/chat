@@ -1,7 +1,13 @@
 <article class="@MessageClass" data-content-id="@Message.ContentId" aria-label="@ResolvedSenderLabel">
     <header class="skopka-chat-message__header">
         <span class="skopka-chat-message__sender">@ResolvedSenderLabel</span>
-        <time datetime="@Message.SentAt.ToString("O", CultureInfo.InvariantCulture)">@ResolvedTime</time>
+        <span class="skopka-chat-message__time">
+            <time datetime="@Message.SentAt.ToString("O", CultureInfo.InvariantCulture)">@ResolvedTime</time>
+            @if (Message.IsEdited)
+            {
+                <span class="skopka-chat-message__edited">@Strings.Edited</span>
+            }
+        </span>
     </header>
 
     @if (Message.IsForwarded)
@@ -51,10 +57,14 @@
                             @onclick="() => ToggleReactionAsync(reaction)">@reaction</button>
                 }
             </div>
-            <button type="button" class="skopka-chat-message__action" @onclick="BeginReply">@Strings.Reply</button>
+            <button type="button" class="skopka-chat-message__action" disabled="@_commandPending" @onclick="BeginReply">@Strings.Reply</button>
+            @if (IsOwnMessage)
+            {
+                <button type="button" class="skopka-chat-message__action" disabled="@_commandPending" @onclick="BeginEdit">@Strings.Edit</button>
+            }
             @if (ForwardRequested.HasDelegate)
             {
-                <button type="button" class="skopka-chat-message__action" @onclick="ForwardAsync">@Strings.Forward</button>
+                <button type="button" class="skopka-chat-message__action" disabled="@_commandPending" @onclick="ForwardAsync">@Strings.Forward</button>
             }
         </footer>
     }
@@ -119,6 +129,8 @@
     }
 
     private void BeginReply() => ViewModel.BeginReply(Message.ContentId);
+
+    private void BeginEdit() => ViewModel.BeginEdit(Message.ContentId);
 
     private Task ForwardAsync() => ForwardRequested.InvokeAsync(Message);
 

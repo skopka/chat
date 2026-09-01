@@ -42,21 +42,26 @@ public sealed class ProjectedChatReaction
     public override string ToString() => $"ProjectedChatReaction(Count={Count}, Reaction=[REDACTED])";
 }
 
-/// <summary>One projected text item with reply, forward and active-reaction state.</summary>
+/// <summary>One projected text item with reply, forward, edit and active-reaction state.</summary>
 public sealed class ProjectedChatMessage : IProjectedChatItem
 {
     private readonly ReadOnlyCollection<ProjectedChatReaction> _reactions;
 
-    internal ProjectedChatMessage(ReceivedChatContent delivery, ChatTextContent content, IEnumerable<ProjectedChatReaction> reactions)
+    internal ProjectedChatMessage(
+        ReceivedChatContent delivery,
+        ChatTextContent content,
+        ReceivedChatContent? edit,
+        IEnumerable<ProjectedChatReaction> reactions)
     {
         ContentId = content.ContentId;
         DeliveryMessageId = delivery.DeliveryMessageId;
         SenderUserId = delivery.SenderUserId;
         SenderDeviceId = delivery.SenderDeviceId;
         SentAt = delivery.SentAt;
-        Text = content.Text;
+        Text = edit?.Content is ChatEditContent editContent ? editContent.NewValue! : content.Text;
         ReplyToContentId = content.ReplyToContentId;
         IsForwarded = content.IsForwarded;
+        EditedAt = edit?.SentAt;
         _reactions = Array.AsReadOnly(reactions.ToArray());
     }
 
@@ -75,7 +80,7 @@ public sealed class ProjectedChatMessage : IProjectedChatItem
     /// <summary>Sender-supplied timestamp authenticated by the envelope.</summary>
     public DateTimeOffset SentAt { get; }
 
-    /// <summary>Decrypted message text.</summary>
+    /// <summary>Current decrypted message text after applying the selected author edit, if any.</summary>
     public string Text { get; }
 
     /// <summary>Referenced logical content, including when it is absent from this projection.</summary>
@@ -83,6 +88,12 @@ public sealed class ProjectedChatMessage : IProjectedChatItem
 
     /// <summary>Sender assertion that this text was forwarded; not proof of its original author.</summary>
     public bool IsForwarded { get; }
+
+    /// <inheritdoc />
+    public bool IsEdited => EditedAt.HasValue;
+
+    /// <inheritdoc />
+    public DateTimeOffset? EditedAt { get; }
 
     /// <summary>Active reactions grouped by rendering token.</summary>
     public IReadOnlyList<ProjectedChatReaction> Reactions => _reactions;
@@ -115,6 +126,12 @@ public interface IProjectedChatItem
 
     /// <summary>Active reactions grouped by rendering token.</summary>
     IReadOnlyList<ProjectedChatReaction> Reactions { get; }
+
+    /// <summary>Whether an authenticated edit from the original sender is applied.</summary>
+    bool IsEdited { get; }
+
+    /// <summary>Authenticated but sender-controlled time of the currently applied edit.</summary>
+    DateTimeOffset? EditedAt { get; }
 }
 
 /// <summary>One projected attachment manifest with active reactions.</summary>
@@ -125,6 +142,7 @@ public sealed class ProjectedChatAttachment : IProjectedChatItem
     internal ProjectedChatAttachment(
         ReceivedChatContent delivery,
         ChatAttachmentContent content,
+        ReceivedChatContent? edit,
         IEnumerable<ProjectedChatReaction> reactions)
     {
         ContentId = content.ContentId;
@@ -136,8 +154,9 @@ public sealed class ProjectedChatAttachment : IProjectedChatItem
         FileName = content.FileName;
         MediaType = content.MediaType;
         PlaintextLength = content.PlaintextLength;
-        Caption = content.Caption;
+        Caption = edit?.Content is ChatEditContent editContent ? editContent.NewValue : content.Caption;
         ReplyToContentId = content.ReplyToContentId;
+        EditedAt = edit?.SentAt;
         Manifest = content;
         _reactions = Array.AsReadOnly(reactions.ToArray());
     }
@@ -169,7 +188,7 @@ public sealed class ProjectedChatAttachment : IProjectedChatItem
     /// <summary>Expected decrypted size.</summary>
     public long PlaintextLength { get; }
 
-    /// <summary>Optional decrypted caption.</summary>
+    /// <summary>Current optional decrypted caption after applying the selected author edit, if any.</summary>
     public string? Caption { get; }
 
     /// <inheritdoc />
@@ -178,7 +197,16 @@ public sealed class ProjectedChatAttachment : IProjectedChatItem
     /// <inheritdoc />
     public IReadOnlyList<ProjectedChatReaction> Reactions => _reactions;
 
-    /// <summary>Decryption manifest for a trusted host attachment transport.</summary>
+    /// <inheritdoc />
+    public bool IsEdited => EditedAt.HasValue;
+
+    /// <inheritdoc />
+    public DateTimeOffset? EditedAt { get; }
+
+    /// <summary>
+    /// Original content-v2 decryption manifest for a trusted host attachment transport.
+    /// Use <see cref="Caption"/> for the current projected caption.
+    /// </summary>
     public ChatAttachmentContent Manifest { get; }
 
     /// <inheritdoc />
@@ -187,7 +215,7 @@ public sealed class ProjectedChatAttachment : IProjectedChatItem
 }
 
 /// <summary>
-/// Thread-safe in-memory reducer for authenticated text and reaction events in one conversation.
+/// Thread-safe in-memory reducer for authenticated text, attachment, edit and reaction events in one conversation.
 /// Hosts remain responsible for protected durable local history.
 /// </summary>
 public sealed class ChatConversationProjection
@@ -197,6 +225,7 @@ public sealed class ChatConversationProjection
     private readonly HashSet<ChatContentId> _conflictedContentIds = [];
     private readonly Dictionary<ChatContentId, ReceivedChatContent> _items = [];
     private readonly Dictionary<ReactionKey, ReceivedChatContent> _reactionStates = [];
+    private readonly Dictionary<EditKey, ReceivedChatContent> _editStates = [];
 
     /// <summary>Creates an empty projection for exactly one conversation.</summary>
     public ChatConversationProjection(ConversationId conversationId)
@@ -213,7 +242,7 @@ public sealed class ChatConversationProjection
     public ConversationId ConversationId { get; }
 
     /// <summary>
-    /// Applies verified content. Reactions may arrive before their target and become visible when it arrives.
+    /// Applies verified content. Reactions and edits may arrive before their target and become visible when it arrives.
     /// </summary>
     public ChatProjectionApplyResult Apply(ReceivedChatContent delivery)
     {
@@ -292,16 +321,31 @@ public sealed class ChatConversationProjection
     private ProjectedChatMessage CreateProjectedMessage(ReceivedChatContent delivery)
     {
         var text = (ChatTextContent)delivery.Content;
-        return new ProjectedChatMessage(delivery, text, CreateReactions(text.ContentId));
+        return new ProjectedChatMessage(
+            delivery,
+            text,
+            FindEdit(delivery, ChatEditField.Text),
+            CreateReactions(text.ContentId));
     }
 
     private IProjectedChatItem CreateProjectedItem(ReceivedChatContent delivery) => delivery.Content switch
     {
-        ChatTextContent text => new ProjectedChatMessage(delivery, text, CreateReactions(text.ContentId)),
+        ChatTextContent text => new ProjectedChatMessage(
+            delivery,
+            text,
+            FindEdit(delivery, ChatEditField.Text),
+            CreateReactions(text.ContentId)),
         ChatAttachmentContent attachment =>
-            new ProjectedChatAttachment(delivery, attachment, CreateReactions(attachment.ContentId)),
+            new ProjectedChatAttachment(
+                delivery,
+                attachment,
+                FindEdit(delivery, ChatEditField.AttachmentCaption),
+                CreateReactions(attachment.ContentId)),
         _ => throw new InvalidOperationException("Unsupported projected chat content type."),
     };
+
+    private ReceivedChatContent? FindEdit(ReceivedChatContent target, ChatEditField field) =>
+        _editStates.GetValueOrDefault(new EditKey(target.Content.ContentId, target.SenderUserId, field));
 
     private ProjectedChatReaction[] CreateReactions(ChatContentId targetContentId) =>
         _reactionStates.Values
@@ -330,6 +374,15 @@ public sealed class ChatConversationProjection
                 }
 
                 break;
+            case ChatEditContent edit:
+                var editKey = new EditKey(edit.TargetContentId, delivery.SenderUserId, edit.Field);
+                if (!_editStates.TryGetValue(editKey, out var existingEdit) ||
+                    CompareEventOrder(existingEdit, delivery) < 0)
+                {
+                    _editStates[editKey] = delivery;
+                }
+
+                break;
             default:
                 throw new InvalidOperationException("Unsupported chat content type.");
         }
@@ -339,6 +392,7 @@ public sealed class ChatConversationProjection
     {
         _items.Clear();
         _reactionStates.Clear();
+        _editStates.Clear();
         foreach (var delivery in _events.Values)
         {
             ApplyCore(delivery);
@@ -374,6 +428,10 @@ public sealed class ChatConversationProjection
                 first.TargetContentId == second.TargetContentId &&
                 first.Reaction == second.Reaction &&
                 first.Operation == second.Operation,
+            (ChatEditContent first, ChatEditContent second) =>
+                first.TargetContentId == second.TargetContentId &&
+                first.Field == second.Field &&
+                first.NewValue == second.NewValue,
             (ChatAttachmentContent first, ChatAttachmentContent second) =>
                 first.AttachmentId == second.AttachmentId &&
                 first.FileName == second.FileName &&
@@ -394,4 +452,9 @@ public sealed class ChatConversationProjection
         ChatContentId TargetContentId,
         UserId SenderUserId,
         string Reaction);
+
+    private readonly record struct EditKey(
+        ChatContentId TargetContentId,
+        UserId SenderUserId,
+        ChatEditField Field);
 }

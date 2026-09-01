@@ -10,10 +10,12 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Attachments` — transport-neutral контракт immutable ciphertext storage, авторизация upload/download/delete и общие лимиты; зависит только от Protocol.
 - `Skopka.Chat.Attachments.PostgreSql` — отдельный `AttachmentDbContext`, migration и ограниченное `bytea`-хранилище для небольших зашифрованных файлов.
 - `Skopka.Chat.Attachments.S3` — потоковое S3-compatible хранилище с conditional create, проверкой длины/SHA-256 и без перезаписи объекта.
-- `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, типизированный encrypted content (ответы, пересылки, реакции, attachment manifest v2), потоковое шифрование файлов, локальная проекция, fingerprints/security codes, `IChatTransport` и дедупликация.
+- `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, типизированный encrypted content (ответы, пересылки, реакции, edit events v3, attachment manifest v2), потоковое шифрование файлов, локальная проекция, fingerprints/security codes, `IChatTransport` и дедупликация.
+- `Skopka.Chat.Client.Storage` — durable journal contracts, восстановление проекций и `ChatSyncCoordinator` с порядком verify/decrypt → store → apply → acknowledge.
+- `Skopka.Chat.Client.Storage.Sqlite` — локальный SQLite-журнал проверенных typed events с атомарной дедупликацией `MessageId`; хранит plaintext и требует host-защиты файла БД.
 - `Skopka.Chat.Media` — client-side режимы `Auto`/`Media`/`File`, заменяемая подготовка фото/видео и orchestration prepare → encrypt → upload; без server/persistence/UI framework.
 - `Skopka.Chat.Media.FFmpeg` — необязательное локальное JPEG/H.264/AAC преобразование через host-supplied FFmpeg; binary не входит в NuGet-пакет.
-- `Skopka.Chat.UI.Core` — framework-independent `ChatViewModel`, composer/reply/reaction/forward commands и host-owned `IChatContentSender`; без зависимости от Blazor, transport или server.
+- `Skopka.Chat.UI.Core` — framework-independent `ChatViewModel`, composer/reply/reaction/forward/edit commands и host-owned `IChatContentSender`; без зависимости от Blazor, transport или server.
 - `Skopka.Chat.UI.Blazor` — доступные Blazor-компоненты с CSS variables, локализуемыми строками и заменяемыми message/attachment/composer templates.
 - `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
 - `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses, потоковая загрузка/расшифровка attachments и ограниченные retries идемпотентных операций; без ссылки на Server.
@@ -21,7 +23,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.11.0` — первый публичный согласованный набор после `0.7.0`. Он сохраняет protocol v1 и добавляет накопленные клиентские возможности: encrypted content v1 для ответов/пересылок/реакций, адаптируемый UI, attachment content v2 с PostgreSQL/S3 storage и локальную подготовку фото/видео с точным режимом `File`. Canonical protocol-v1 bytes не меняются; сервер и storage по-прежнему получают только ciphertext. Промежуточные линии `0.8.x`–`0.10.x` публично не выпускались. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.11.0` — первый публичный согласованный набор после `0.7.0`. Текущая ветка готовит `0.12.0`: она сохраняет protocol v1 и существующие content v1/v2 bytes, добавляя immutable encrypted edit events v3, durable client event storage и SQLite-адаптер. Серверные storage по-прежнему получают только ciphertext; локальный client journal после успешной E2EE-проверки содержит plaintext. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Документация
 
@@ -29,6 +31,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - [Руководство по адаптируемому UI](docs/ui.md)
 - [Руководство по encrypted attachments](docs/attachments.md)
 - [Подготовка фото и видео](docs/media.md)
+- [Локальная история и синхронизация](docs/client-storage.md)
 - [Руководство разработчика](docs/development.md)
 - [Руководство по выпуску](docs/releasing.md)
 - [Инструкции для coding-агентов](AGENTS.md)
@@ -76,7 +79,26 @@ if (result.Delivery is not null)
 string code = SecurityCodes.Between(myPublicDevice, senderPublicDevice);
 ```
 
-## Ответы, пересылки и реакции
+Для постоянной typed history используйте отдельный безопасный pipeline вместо ручного acknowledgement:
+
+```csharp
+var events = new SqliteChatEventStore("Data Source=protected/chat-history.db;Pooling=False");
+var projections = new ChatConversationProjectionRegistry();
+using var sync = new ChatSyncCoordinator(
+    transport,
+    new ChatCryptoService(keyStore),
+    events,
+    projections,
+    myPublicDevice.DeviceId);
+
+await sync.InitializeAsync(cancellationToken); // восстановление до polling
+await sync.SynchronizeAsync(100, cancellationToken);
+await sync.CommitLocalEchoAsync(successfulSend.Delivery!, cancellationToken);
+```
+
+Координатор подтверждает серверную доставку только после проверки, атомарной записи и идемпотентного применения. SQLite хранит канонический расшифрованный content, включая attachment keys; host обязан защищать файл БД, backups и retention. Подробнее: [docs/client-storage.md](docs/client-storage.md).
+
+## Ответы, пересылки, реакции и редактирование
 
 `ChatContentId` идентифицирует одно логическое событие и переиспользуется при шифровании для нескольких устройств. `MessageId` остаётся уникальным ID recipient-specific конверта:
 
@@ -89,9 +111,14 @@ var reaction = new ChatReactionContent(
     original.ContentId,
     "👍",
     ChatReactionOperation.Add);
+var edit = new ChatEditContent(
+    ChatContentId.New(),
+    original.ContentId,
+    ChatEditField.Text,
+    "updated text");
 ```
 
-Пересылка копирует только текст, очищает reply-ссылку и ставит `IsForwarded`. Она не переносит исходного автора, conversation ID или подпись и поэтому не выдаёт отображаемую атрибуцию за криптографическое доказательство. Реакция — отдельное зашифрованное событие `Add`/`Remove`; сервер не видит целевой `ChatContentId` или emoji. `ChatConversationProjection` принимает уже аутентифицированный `ReceivedChatContent`, сохраняет реакцию, пришедшую раньше сообщения, и детерминированно выбирает последнее событие одного пользователя.
+Пересылка копирует только текст, очищает reply-ссылку и ставит `IsForwarded`. Она не переносит исходного автора, conversation ID или подпись и поэтому не выдаёт отображаемую атрибуцию за криптографическое доказательство. Реакция и правка — отдельные зашифрованные события; сервер не видит целевой `ChatContentId`, emoji или новый текст. `ChatConversationProjection` принимает уже аутентифицированный `ReceivedChatContent`, сохраняет события, пришедшие раньше цели, и применяет правку только от пользователя — автора исходного сообщения. Последняя правка выбирается по authenticated sender time и `ContentId`; исходный server ciphertext не переписывается. Подпись вложения редактируется через `ChatEditField.AttachmentCaption`, а `null` удаляет только подпись.
 
 Сырые `EncryptTextAsync`, `EncryptAsync`, `DecryptAsync` и `ChatReceiver.ReceiveAsync` сохранены для приложений `0.1.x`–`0.7.x`; они не пытаются угадать тип содержимого. Новые приложения должны явно использовать `EncryptContentAsync`, `DecryptContentAsync` или `ReceiveContentAsync`.
 
@@ -136,6 +163,10 @@ if (receiveResult.Delivery is not null)
 }
 
 chat.SetDraftText("hello");
+await chat.TrySendDraftAsync();
+
+chat.BeginEdit(ownMessageContentId);
+chat.SetDraftText("corrected text");
 await chat.TrySendDraftAsync();
 ```
 
@@ -272,12 +303,12 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 
 Без переменной DB-тесты корректно пропускаются; остальные unit и in-memory integration tests не требуют инфраструктуры. Для release-like проверки установите также `$env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'`: тогда отсутствие connection string завершит тест ошибкой.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и все DB-gates, выполняет Release build/test/pack и сохраняет все четырнадцать `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и все DB-gates, выполняет Release build/test/pack и сохраняет все шестнадцать `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает четырнадцать `.nupkg` вместе с четырнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает шестнадцать `.nupkg` вместе с шестнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
-PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а клиент обязан сохранять локальную дедупликацию через транзакционную реализацию `IReceivedMessageStore`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
+PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а typed client может использовать `IChatEventStore`/`ChatSyncCoordinator` для durable store-before-ack; `IReceivedMessageStore` остаётся низкоуровневой границей `ChatReceiver`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 
 ## Что не входит в v1
 
-Готовый product shell, список диалогов/контактов, MAUI/Avalonia adapters, production-инфраструктура, интеграция со SkopiClub, редактирование/удаление сообщений, группы, resumable/range media, thumbnails, attachment forwarding, push, backup/recovery ключей и автоматический multi-device fan-out не входят в этот репозиторий. Контракты различают user и device, поэтому один пользователь может иметь несколько устройств, а host-owned sender создаёт отдельный конверт с уникальным `MessageId` для каждого устройства-получателя, переиспользуя один `ChatContentId`.
+Готовый product shell, список диалогов/контактов, MAUI/Avalonia adapters, production-инфраструктура, интеграция со SkopiClub, удаление сообщений, история версий правок, группы, resumable/range media, thumbnails, attachment forwarding, push, backup/recovery ключей и автоматический multi-device fan-out не входят в этот репозиторий. Контракты различают user и device, поэтому один пользователь может иметь несколько устройств, а host-owned sender создаёт отдельный конверт с уникальным `MessageId` для каждого устройства-получателя, переиспользуя один `ChatContentId`.

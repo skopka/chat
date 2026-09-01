@@ -1,6 +1,6 @@
 # Releasing Skopka.Chat packages
 
-Skopka.Chat follows the coordinated NuGet publication model used by the maintained `Skopka.*` package families. One version represents all fourteen packages and is immutable once any member reaches NuGet.org.
+Skopka.Chat follows the coordinated NuGet publication model used by the maintained `Skopka.*` package families. One version represents all sixteen packages and is immutable once any member reaches NuGet.org.
 
 ## One-time repository configuration
 
@@ -18,7 +18,7 @@ Do not store the NuGet key in repository secrets, local files, shell history, wo
 1. Set `VersionPrefix` in `Directory.Build.props` to the intended stable base version.
 2. Update the README release summary, protocol compatibility table, security/limitation documents, and ADRs.
 3. Run formatting, Release build, the complete infrastructure-free suite, all required disposable-PostgreSQL gates, fuzz corpus replay/AFL++ smoke, dependency audit, pack, and package-consumer validation.
-4. Commit the release state and recreate packages after the commit. Verify the `.nuspec` repository SHA, fourteen `.nupkg` files, and fourteen `.snupkg` files.
+4. Commit the release state and recreate packages after the commit. Verify the `.nuspec` repository SHA, sixteen `.nupkg` files, and sixteen `.snupkg` files.
 5. Push the commit to `main` and wait for CI to succeed.
 
 Package IDs are published in dependency order:
@@ -28,15 +28,17 @@ Package IDs are published in dependency order:
 3. `Skopka.Chat.Attachments.PostgreSql`
 4. `Skopka.Chat.Attachments.S3`
 5. `Skopka.Chat.Client`
-6. `Skopka.Chat.Media`
-7. `Skopka.Chat.Media.FFmpeg`
-8. `Skopka.Chat.UI.Core`
-9. `Skopka.Chat.UI.Blazor`
-10. `Skopka.Chat.Server`
-11. `Skopka.Chat.Transport.Http`
-12. `Skopka.Chat.Client.Http`
-13. `Skopka.Chat.Persistence.PostgreSql`
-14. `Skopka.Chat.Server.AspNetCore`
+6. `Skopka.Chat.Client.Storage`
+7. `Skopka.Chat.Client.Storage.Sqlite`
+8. `Skopka.Chat.Media`
+9. `Skopka.Chat.Media.FFmpeg`
+10. `Skopka.Chat.UI.Core`
+11. `Skopka.Chat.UI.Blazor`
+12. `Skopka.Chat.Server`
+13. `Skopka.Chat.Transport.Http`
+14. `Skopka.Chat.Client.Http`
+15. `Skopka.Chat.Persistence.PostgreSql`
+16. `Skopka.Chat.Server.AspNetCore`
 
 ## Triggering publication
 
@@ -47,7 +49,7 @@ The release workflow then:
 - proves the tag commit belongs to `main`;
 - validates SemVer and matches its stable base to `VersionPrefix`;
 - repeats formatting, build, tests, PostgreSQL gates, fuzz smoke, dependency audit, packing, and package-consumer execution;
-- verifies the exact fourteen-package and fourteen-symbol-package set;
+- verifies the exact sixteen-package and sixteen-symbol-package set;
 - refuses to start if any package ID already owns that version on NuGet.org;
 - uploads immutable artifacts, enters the protected `release` environment, and pushes packages in dependency order;
 - waits until every package is visible on NuGet.org;

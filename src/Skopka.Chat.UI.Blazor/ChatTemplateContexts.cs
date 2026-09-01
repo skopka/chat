@@ -50,6 +50,9 @@ public enum SkopkaChatCommand
 
     /// <summary>Preparing, encrypting, uploading and sending a selected attachment.</summary>
     SendAttachment = 3,
+
+    /// <summary>Sending a text or attachment-caption edit.</summary>
+    EditContent = 4,
 }
 
 /// <summary>Reusable defaults for the standard components.</summary>

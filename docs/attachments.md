@@ -1,6 +1,6 @@
 # Encrypted attachments
 
-Skopka.Chat `0.11.x` transfers media as an independently encrypted blob plus a small content-v2 manifest carried inside the existing protocol-v1 envelope. The server, PostgreSQL and S3-compatible provider receive ciphertext, an opaque attachment ID, conversation/uploader IDs, ciphertext length/hash and retention timestamps. File name, media type, caption, plaintext length, file key and nonce prefix remain inside E2EE content.
+Skopka.Chat `0.11.x` and later transfers media as an independently encrypted blob plus a small content-v2 manifest carried inside the existing protocol-v1 envelope. The server, PostgreSQL and S3-compatible provider receive ciphertext, an opaque attachment ID, conversation/uploader IDs, ciphertext length/hash and retention timestamps. File name, media type, caption, plaintext length, file key and nonce prefix remain inside E2EE content.
 
 ## Package choice
 

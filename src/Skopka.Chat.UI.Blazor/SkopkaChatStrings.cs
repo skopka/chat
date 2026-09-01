@@ -36,6 +36,18 @@ public sealed record SkopkaChatStrings
     /// <summary>Forward action label.</summary>
     public string Forward { get; init; } = "Forward";
 
+    /// <summary>Edit action label.</summary>
+    public string Edit { get; init; } = "Edit";
+
+    /// <summary>Marker shown after an authenticated edit is applied.</summary>
+    public string Edited { get; init; } = "edited";
+
+    /// <summary>Composer mode label for editing a text message.</summary>
+    public string EditingMessage { get; init; } = "Editing message";
+
+    /// <summary>Composer mode label for editing an attachment caption.</summary>
+    public string EditingCaption { get; init; } = "Editing caption";
+
     /// <summary>Attachment fallback label.</summary>
     public string Attachment { get; init; } = "Attachment";
 
@@ -62,6 +74,9 @@ public sealed record SkopkaChatStrings
 
     /// <summary>Send action label.</summary>
     public string Send { get; init; } = "Send";
+
+    /// <summary>Save-edit action label.</summary>
+    public string Save { get; init; } = "Save";
 
     /// <summary>Cancel action label.</summary>
     public string Cancel { get; init; } = "Cancel";

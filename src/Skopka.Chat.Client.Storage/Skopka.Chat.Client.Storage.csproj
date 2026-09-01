@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Client.Storage</PackageId>
+    <Description>Durable verified-event storage contracts and safe receive synchronization for Skopka.Chat clients.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
+  </ItemGroup>
+
+</Project>

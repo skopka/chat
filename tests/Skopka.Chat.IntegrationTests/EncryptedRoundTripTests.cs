@@ -51,7 +51,7 @@ public sealed class EncryptedRoundTripTests
     }
 
     [Fact]
-    public async Task Typed_reply_forward_and_reaction_round_trip_as_opaque_ciphertext()
+    public async Task Typed_reply_forward_reaction_and_edit_round_trip_as_opaque_ciphertext()
     {
         var now = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
         var aliceStore = new InMemoryDeviceKeyStore();
@@ -66,6 +66,7 @@ public sealed class EncryptedRoundTripTests
         await server.CreateConversationAsync(alice.UserId, bob.UserId, conversationId, now);
         var firstId = ChatContentId.New();
         const string secretMarker = "typed secret marker 4D84358A";
+        const string editedMarker = "edited secret marker 794E2B1C";
         var first = new ChatTextContent(firstId, secretMarker);
         ChatContent[] content =
         [
@@ -73,6 +74,7 @@ public sealed class EncryptedRoundTripTests
             new ChatTextContent(ChatContentId.New(), "reply", firstId),
             first.Forward(ChatContentId.New()),
             new ChatReactionContent(ChatContentId.New(), firstId, "👍", ChatReactionOperation.Add),
+            new ChatEditContent(ChatContentId.New(), firstId, ChatEditField.Text, editedMarker),
         ];
         var aliceCrypto = new ChatCryptoService(aliceStore);
         var envelopeIds = new List<MessageId>();
@@ -91,8 +93,12 @@ public sealed class EncryptedRoundTripTests
         }
 
         var markerBytes = Encoding.UTF8.GetBytes(secretMarker);
+        var editedMarkerBytes = Encoding.UTF8.GetBytes(editedMarker);
         Assert.All(serverStore.SnapshotEnvelopes(), stored =>
-            Assert.True(stored.Envelope.Ciphertext.Span.IndexOf(markerBytes) < 0));
+        {
+            Assert.True(stored.Envelope.Ciphertext.Span.IndexOf(markerBytes) < 0);
+            Assert.True(stored.Envelope.Ciphertext.Span.IndexOf(editedMarkerBytes) < 0);
+        });
 
         var receiver = new ChatReceiver(new ChatCryptoService(bobStore), new InMemoryReceivedMessageStore());
         var projection = new ChatConversationProjection(conversationId);
@@ -106,12 +112,13 @@ public sealed class EncryptedRoundTripTests
 
         var messages = projection.Snapshot();
         Assert.Equal(3, messages.Count);
-        Assert.Equal(secretMarker, messages[0].Text);
+        Assert.Equal(editedMarker, messages[0].Text);
+        Assert.True(messages[0].IsEdited);
         Assert.Equal(firstId, messages[1].ReplyToContentId);
         Assert.True(messages[2].IsForwarded);
         Assert.Equal(secretMarker, messages[2].Text);
         Assert.Equal("👍", Assert.Single(messages[0].Reactions).Reaction);
         Assert.Empty(await server.ReceiveAsync(bob.DeviceId, 10, now.AddMinutes(3)));
-        Assert.Equal(4, envelopeIds.Distinct().Count());
+        Assert.Equal(5, envelopeIds.Distinct().Count());
     }
 }

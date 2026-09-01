@@ -1,6 +1,6 @@
 # Photo and video preparation
 
-Skopka.Chat `0.11.x` can prepare photos and videos on the participant device before attachment encryption. The prepared bytes are then encrypted and uploaded through the existing attachment content-v2 path. The server and storage provider never run FFmpeg and never receive media plaintext.
+Skopka.Chat `0.11.x` and later can prepare photos and videos on the participant device before attachment encryption. The prepared bytes are then encrypted and uploaded through the existing attachment content-v2 path. The server and storage provider never run FFmpeg and never receive media plaintext.
 
 ## Send modes
 

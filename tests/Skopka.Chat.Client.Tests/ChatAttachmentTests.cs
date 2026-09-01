@@ -137,7 +137,38 @@ public sealed class ChatAttachmentTests
         Assert.Equal("👍", Assert.Single(attachment.Reactions).Reaction);
     }
 
-    private static ChatAttachmentContent Manifest(ChatContentId contentId) => new(
+    [Fact]
+    public void Projection_applies_and_clears_an_author_attachment_caption_edit()
+    {
+        var conversationId = ConversationId.New();
+        var sender = UserId.New();
+        var targetId = ChatContentId.New();
+        var manifest = Manifest(targetId, "original caption");
+        var projection = new ChatConversationProjection(conversationId);
+        var now = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
+
+        projection.Apply(new ReceivedChatContent(
+            MessageId.New(), conversationId, sender, DeviceId.New(), now, manifest));
+        projection.Apply(new ReceivedChatContent(
+            MessageId.New(),
+            conversationId,
+            sender,
+            DeviceId.New(),
+            now.AddSeconds(1),
+            new ChatEditContent(
+                ChatContentId.New(),
+                targetId,
+                ChatEditField.AttachmentCaption,
+                null)));
+
+        var attachment = Assert.IsType<ProjectedChatAttachment>(Assert.Single(projection.SnapshotTimeline()));
+        Assert.Null(attachment.Caption);
+        Assert.True(attachment.IsEdited);
+        Assert.Equal(now.AddSeconds(1), attachment.EditedAt);
+        Assert.Equal("original caption", attachment.Manifest.Caption);
+    }
+
+    private static ChatAttachmentContent Manifest(ChatContentId contentId, string? caption = null) => new(
         contentId,
         AttachmentId.New(),
         "image.jpg",
@@ -147,5 +178,6 @@ public sealed class ChatAttachmentTests
         ChatAttachmentCryptoService.DefaultChunkPlaintextBytes,
         new byte[32],
         Enumerable.Repeat((byte)1, 32).ToArray(),
-        Enumerable.Repeat((byte)2, 16).ToArray());
+        Enumerable.Repeat((byte)2, 16).ToArray(),
+        caption);
 }

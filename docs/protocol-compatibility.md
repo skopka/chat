@@ -34,6 +34,7 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.9.x` *(not published)* | v1 | v1 | Development line for optional UI.Core presentation state and adaptable Blazor components. |
 | `0.10.x` *(not published)* | v1 | v1 | Development line for attachment content v2, chunked file AEAD, independent PostgreSQL/S3 storage and authenticated ciphertext HTTP routes. |
 | `0.11.x` | v1 | v1 | First coordinated public set after `0.7.0`; includes the accumulated encrypted-content v1, UI, attachment content v2/storage and client-side media preparation/exact-file mode. Protocol-v1 canonical bytes remain unchanged. |
+| `0.12.x` *(not published)* | v1 | v1 | Adds encrypted content-v3 edits, adaptable edit UI, durable verified client-event storage/synchronization and optional SQLite. Content v1/v2 and protocol-v1 canonical bytes remain unchanged. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
 
@@ -46,3 +47,7 @@ One `ChatContentId` identifies the same logical event across recipient-device fa
 Package `0.11.x` emits content v1 for `ChatTextContent` and `ChatReactionContent`; it emits content v2 only for `ChatAttachmentContent`. Content v2 is not a reinterpretation of v1. Its manifest carries the separately stored ciphertext hash, framing parameters and participant-only file metadata/key. Published clients through `0.7.0` can authenticate the outer envelope as bytes but cannot project or decrypt typed content or attachments. Exact attachment fields and the chunk-v1 domain are pinned in [ADR 0011](adr/0011-encrypted-attachments-and-storage.md).
 
 Package `0.11.x` prepares optional photo/video plaintext before the attachment encryption step. `Auto`, `Media` and exact `File` modes are local API semantics and add no new content fields. A recipient with attachment-content-v2 support can receive/decrypt the result without referencing the media package. See [ADR 0012](adr/0012-client-media-preparation.md).
+
+Package `0.12.x` adds `ChatEditContent` as content v3. It does not reinterpret text/reaction content v1 or attachment content v2. Clients through `0.11.x` can authenticate and decrypt an edit envelope as opaque bytes but their typed decoder rejects content v3; all participants that project edits must therefore support v3. Exact bytes, author checks and deterministic folding are pinned in [ADR 0013](adr/0013-encrypted-message-edits.md).
+
+The `Skopka.Chat.Client.Storage` and `.Sqlite` packages in `0.12.x` operate only after protocol/content authentication. Their event schema and store/apply/ack coordinator do not change any transmitted bytes or require the server to understand typed content. SQLite rows contain local plaintext and are a host-protected endpoint asset, as defined in [ADR 0014](adr/0014-durable-client-events-and-sync.md).

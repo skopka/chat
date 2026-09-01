@@ -110,6 +110,8 @@ jobs:
             "Skopka.Chat.Attachments.PostgreSql"
             "Skopka.Chat.Attachments.S3"
             "Skopka.Chat.Client"
+            "Skopka.Chat.Client.Storage"
+            "Skopka.Chat.Client.Storage.Sqlite"
             "Skopka.Chat.Media"
             "Skopka.Chat.Media.FFmpeg"
             "Skopka.Chat.UI.Core"
@@ -133,8 +135,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 14 || "$SNUPKG_COUNT" -ne 14 ]]; then
-            echo "Expected 14 packages and 14 symbol packages for ${PACKAGE_VERSION}, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 16 || "$SNUPKG_COUNT" -ne 16 ]]; then
+            echo "Expected 16 packages and 16 symbol packages for ${PACKAGE_VERSION}, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
