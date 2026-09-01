@@ -9,22 +9,28 @@
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <PackageVersion>0.6.0</PackageVersion>
-    <Version>0.6.0</Version>
+    <VersionPrefix>0.7.0</VersionPrefix>
     <Authors>Skopka.Chat contributors</Authors>
     <Company>Skopka.Chat</Company>
+    <Product>Skopka.Chat</Product>
     <Copyright>Copyright (c) Skopka.Chat contributors</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>chat;e2ee;encryption;aspnetcore;postgresql;skopka</PackageTags>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageOutputPath>$(MSBuildThisFileDirectory)artifacts\packages</PackageOutputPath>
     <RepositoryType>git</RepositoryType>
-    <RepositoryUrl>https://github.com/skopka/chat</RepositoryUrl>
+    <RepositoryUrl>https://github.com/skopka/chat.git</RepositoryUrl>
     <PackageProjectUrl>https://github.com/skopka/chat</PackageProjectUrl>
-    <DebugType>embedded</DebugType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DebugType>portable</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="\" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)docs\**\*.md" Pack="true" PackagePath="docs\" Visible="false" />
   </ItemGroup>
 </Project>

@@ -18,9 +18,9 @@ env:
 
 jobs:
   validate:
-    name: Build, test, and pack
+    name: Build, test, fuzz, and pack
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -54,6 +54,9 @@ jobs:
       - name: Build
         run: dotnet build Skopka.Chat.sln --configuration Release --no-restore
 
+      - name: Verify formatting
+        run: dotnet format Skopka.Chat.sln --no-restore --verify-no-changes
+
       - name: Run unit, hostile-input, and infrastructure-free integration tests
         run: dotnet test --solution Skopka.Chat.sln --configuration Release --no-build --no-restore
 
@@ -67,13 +70,88 @@ jobs:
         run: dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
         env: *postgres-test-environment
 
+      - name: Install AFL++
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes afl++
+
+      - name: Run coverage-guided JSON fuzz smoke
+        run: bash eng/run-json-fuzz-smoke.sh 10 "${{ github.workspace }}/artifacts/fuzz-smoke"
+
+      - name: Audit NuGet dependencies
+        run: dotnet list Skopka.Chat.sln package --vulnerable --include-transitive --no-restore
+
+      - name: Determine package version
+        id: package_version
+        shell: bash
+        run: |
+          VERSION="$(dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.csproj -getProperty:PackageVersion -nologo)"
+          if [[ -z "$VERSION" ]]; then
+            echo "The package version could not be determined." >&2
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Pack NuGet packages
         run: dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
+
+      - name: Verify package set
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ steps.package_version.outputs.value }}
+        run: |
+          PACKAGE_IDS=(
+            "Skopka.Chat.Protocol"
+            "Skopka.Chat.Client"
+            "Skopka.Chat.Transport.Http"
+            "Skopka.Chat.Client.Http"
+            "Skopka.Chat.Server"
+            "Skopka.Chat.Server.AspNetCore"
+            "Skopka.Chat.Persistence.PostgreSql"
+          )
+
+          for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
+            for EXTENSION in nupkg snupkg; do
+              PACKAGE_PATH="artifacts/packages/${PACKAGE_ID}.${PACKAGE_VERSION}.${EXTENSION}"
+              if [[ ! -f "$PACKAGE_PATH" ]]; then
+                echo "Expected package '$PACKAGE_PATH' was not produced." >&2
+                exit 1
+              fi
+            done
+          done
+
+          NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.nupkg" | wc -l)
+          SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.snupkg" | wc -l)
+          if [[ "$NUPKG_COUNT" -ne 7 || "$SNUPKG_COUNT" -ne 7 ]]; then
+            echo "Expected 7 packages and 7 symbol packages for ${PACKAGE_VERSION}, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+            exit 1
+          fi
+
+      - name: Restore package consumer
+        env:
+          PACKAGE_VERSION: ${{ steps.package_version.outputs.value }}
+        run: >
+          dotnet restore tests/Skopka.Chat.PackageConsumer/Skopka.Chat.PackageConsumer.csproj
+          --configfile NuGet.Config
+          -p:RestoreAdditionalProjectSources="${{ github.workspace }}/artifacts/packages"
+          -p:ChatPackageVersion="$PACKAGE_VERSION"
+
+      - name: Run package consumer
+        env:
+          PACKAGE_VERSION: ${{ steps.package_version.outputs.value }}
+        run: >
+          dotnet run
+          --project tests/Skopka.Chat.PackageConsumer/Skopka.Chat.PackageConsumer.csproj
+          --configuration Release
+          --no-restore
+          -p:ChatPackageVersion="$PACKAGE_VERSION"
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: skopka-chat-nuget-${{ github.sha }}
-          path: artifacts/packages/*.nupkg
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14

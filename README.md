@@ -14,12 +14,13 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints с обязательной авторизацией и строгой привязкой user/device claims к серверным операциям; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.6.0` по-прежнему реализует protocol v1; minor-релиз усиливает HTTP JSON boundary, не меняя маршруты, DTO или канонический wire format конверта. Сервер и клиент отклоняют duplicate/unknown/case-mismatched поля, комментарии, trailing commas/data, строковые числа, отсутствующие обязательные значения и глубину больше 16. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.7.0` по-прежнему реализует protocol v1; minor-релиз добавляет coverage-guided JSON fuzz harness, regression corpus, проверки реального Kestrel edge и согласованную публикацию семи NuGet-пакетов с symbol packages. Маршруты, DTO и канонический wire format конверта не изменились. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Документация
 
 - [Индекс документации](docs/README.md)
 - [Руководство разработчика](docs/development.md)
+- [Руководство по выпуску](docs/releasing.md)
 - [Инструкции для coding-агентов](AGENTS.md)
 - [Threat model](docs/threat-model.md) и [security self-review](docs/security-self-review.md)
 
@@ -166,6 +167,8 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 Без переменной DB-тесты корректно пропускаются; остальные unit и in-memory integration tests не требуют инфраструктуры. Для release-like проверки установите также `$env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'`: тогда отсутствие connection string завершит тест ошибкой.
 
 Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и оба DB-проекта, выполняет Release build/test/pack и сохраняет все семь `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+
+Каждый CI build также воспроизводит сохранённый fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает семь `.nupkg` вместе с семью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а клиент обязан сохранять локальную дедупликацию через транзакционную реализацию `IReceivedMessageStore`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 

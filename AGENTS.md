@@ -78,6 +78,18 @@ dotnet build Skopka.Chat.sln --configuration Release --no-restore
 dotnet test --solution Skopka.Chat.sln --configuration Release --no-build --no-restore
 ```
 
+Replay the bounded JSON fuzz corpus on every HTTP contract change:
+
+```powershell
+dotnet run --project tests/Skopka.Chat.FuzzTests --configuration Release --no-build -- --replay tests/Skopka.Chat.FuzzTests/corpus
+```
+
+On Linux with AFL++ installed, run the coverage-guided smoke harness. Its output directory must not already exist:
+
+```bash
+bash eng/run-json-fuzz-smoke.sh 30 artifacts/fuzz-local
+```
+
 Run a narrow project first while iterating, for example:
 
 ```powershell
@@ -100,7 +112,7 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Re
 
 - Protocol or cryptography: run Protocol, Client, and in-memory integration tests; update compatibility/threat documentation and golden vectors when applicable.
 - Server rules: run Server and in-memory integration tests; prove rejection before persistence.
-- HTTP DTO/parser/client/server changes: run both HTTP unit projects and `Skopka.Chat.Http.IntegrationTests`; cover malformed and hostile inputs on both sides.
+- HTTP DTO/parser/client/server changes: run both HTTP unit projects, fuzz corpus replay (and AFL++ when available), and `Skopka.Chat.Http.IntegrationTests`; cover malformed and hostile inputs on both sides.
 - PostgreSQL query/model/migration changes: run the complete PostgreSQL project against a disposable database and the PostgreSQL-backed HTTP integration.
 - Authentication/authorization changes: include missing, malformed, duplicate, and cross-user/device negative cases; never use untrusted headers as a production authentication example.
 - Dependency changes: update only `Directory.Packages.props`, review transitive/native impact, restore, and run the complete gate.
@@ -121,12 +133,14 @@ Update documentation in the same change when public APIs, package boundaries, pr
 
 Before a requested release or version commit:
 
-1. Update `PackageVersion` and `Version` together in `Directory.Build.props`.
+1. Update `VersionPrefix` in `Directory.Build.props`.
 2. Update the README release summary and `docs/protocol-compatibility.md`.
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly seven versioned `.nupkg` files were produced in `artifacts/packages` and the working tree is clean.
+6. Confirm exactly seven versioned `.nupkg` and seven matching `.snupkg` files were produced in `artifacts/packages`, run the package consumer, and ensure the working tree is clean.
+
+Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 
 Use conventional, focused commit subjects such as `feat: ...`, `fix: ...`, `test: ...`, or `docs: ...`. Do not amend, force-push, reset, or rewrite history without explicit authorization. Do not push or publish merely because a local commit/package was requested.
 

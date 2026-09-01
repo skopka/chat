@@ -7,6 +7,7 @@ This guide is for human contributors. Coding agents must also follow the reposit
 - .NET SDK selected by [`global.json`](../global.json) (`10.0.101` with latest-patch roll-forward).
 - PowerShell examples below also work with equivalent environment-variable syntax in another shell.
 - Docker or a separately provisioned **disposable** PostgreSQL database for persistence gates.
+- AFL++ on Linux for coverage-guided fuzzing; corpus replay itself is cross-platform.
 
 NuGet restore uses only the source declared in [`NuGet.Config`](../NuGet.Config). Dependency versions are centralized in [`Directory.Packages.props`](../Directory.Packages.props); package/repository metadata is centralized in [`Directory.Build.props`](../Directory.Build.props).
 
@@ -65,8 +66,27 @@ The persistence gate covers migrations, encrypted storage, concurrent identical/
 | HTTP client/contract | `Skopka.Chat.Client.Http.Tests` | ASP.NET Core tests + HTTP integration |
 | ASP.NET Core boundary | `Skopka.Chat.Server.AspNetCore.Tests` | Client HTTP tests + HTTP integration |
 | EF model/query/migration | `Skopka.Chat.Persistence.PostgreSql.Tests` | Required PostgreSQL HTTP integration |
+| Shared HTTP JSON contracts | `Skopka.Chat.FuzzTests -- --replay .../corpus` | Both HTTP projects + AFL++ smoke |
 
 All HTTP changes should include negative cases. The deterministic hostile-input corpus currently covers malformed/truncated JSON, media types, duplicate and unknown properties, case mismatches, missing/null values, Base64, identifiers, excessive nesting, trailing content, and every cryptographic envelope byte field.
+
+## Coverage-guided JSON fuzzing
+
+The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams, selects one of the seven shared HTTP contracts, performs strict deserialization, protocol mapping where applicable, and a successful-value round trip. `JsonException` and `ProtocolValidationException` are expected rejection outcomes; other exceptions fail the run.
+
+Replay committed seeds and minimized regressions on any platform:
+
+```powershell
+dotnet run --project tests/Skopka.Chat.FuzzTests --configuration Release --no-build -- --replay tests/Skopka.Chat.FuzzTests/corpus
+```
+
+Run a coverage-guided session on Linux after installing AFL++:
+
+```bash
+bash eng/run-json-fuzz-smoke.sh 60 artifacts/fuzz-local
+```
+
+The second argument is a new output directory; the script refuses to overwrite an existing path. It builds and instruments isolated DLL copies with the repo-local SharpFuzz tool, so release binaries remain untouched. Minimize any crash input, add it to `tests/Skopka.Chat.FuzzTests/corpus`, add a focused regression test when possible, and only then fix the defect.
 
 ## Making a change
 
@@ -82,7 +102,7 @@ For schema changes, generate a new EF migration. Existing migrations are append-
 
 ## Packaging and release verification
 
-The solution produces seven NuGet packages in `artifacts/packages`:
+The solution produces seven NuGet packages and seven symbol packages in `artifacts/packages`:
 
 ```powershell
 dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
@@ -91,10 +111,11 @@ dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --pr
 For a committed release, run `pack` after the release commit. MSBuild may otherwise retain a package created before the commit, leaving stale `<repository commit>` metadata. Recreate the versioned packages and inspect a `.nuspec`, for example:
 
 ```powershell
-tar -xOf artifacts/packages/Skopka.Chat.Transport.Http.0.6.0.nupkg Skopka.Chat.Transport.Http.nuspec
+$packageVersion = dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.csproj -getProperty:PackageVersion -nologo
+tar -xOf "artifacts/packages/Skopka.Chat.Transport.Http.$packageVersion.nupkg" Skopka.Chat.Transport.Http.nuspec
 ```
 
-The version in the filename is illustrative; use the value from `Directory.Build.props`. Package creation does not imply publication. CI uploads `.nupkg` files only as short-lived workflow artifacts.
+Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` project is restored from the local package directory after packing and proves that all seven public assemblies can be consumed without project references. See [`releasing.md`](releasing.md) for the protected tag workflow.
 
 ## Security review prompts
 
