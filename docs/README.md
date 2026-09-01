@@ -24,5 +24,6 @@
 - [`adr/0006-strict-json-boundary.md`](adr/0006-strict-json-boundary.md) — strict, bounded, non-reflecting HTTP JSON parsing.
 - [`adr/0007-json-fuzzing-and-kestrel-edge-gate.md`](adr/0007-json-fuzzing-and-kestrel-edge-gate.md) — coverage-guided JSON fuzzing and real-server edge behavior.
 - [`adr/0008-coordinated-nuget-publication.md`](adr/0008-coordinated-nuget-publication.md) — immutable coordinated NuGet and GitHub releases.
+- [`adr/0009-encrypted-content-events.md`](adr/0009-encrypted-content-events.md) — encrypted replies, forwards, reactions and deterministic local projection.
 
 ADRs describe accepted decisions, not production certification. Start with the threat model and MVP limitations before integrating the packages into a real host.

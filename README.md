@@ -7,14 +7,14 @@ Skopka.Chat — переиспользуемый транспорт-незави
 ## Пакеты
 
 - `Skopka.Chat.Protocol` — идентификаторы, лимиты, публичные контракты и каноническое бинарное представление v1; без ASP.NET Core, EF Core и криптографии клиента.
-- `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, fingerprints/security codes, `IChatTransport` и локальная дедупликация.
+- `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, типизированный encrypted content (ответы, пересылки, реакции), локальная проекция, fingerprints/security codes, `IChatTransport` и дедупликация.
 - `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
 - `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses и ограниченные retries идемпотентных операций; без ссылки на Server.
 - `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints с обязательной авторизацией и строгой привязкой user/device claims к серверным операциям; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.7.0` по-прежнему реализует protocol v1; minor-релиз добавляет coverage-guided JSON fuzz harness, regression corpus, проверки реального Kestrel edge и согласованную публикацию семи NuGet-пакетов с symbol packages. Маршруты, DTO и канонический wire format конверта не изменились. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.8.0` по-прежнему реализует protocol v1; minor-релиз добавляет версионированное содержимое внутри ciphertext, стабильный `ChatContentId`, ответы, безопасную пересылку без ложной атрибуции, реакции и детерминированную клиентскую проекцию. Маршруты, DTO, серверное хранилище и канонический wire format конверта не изменились. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Документация
 
@@ -35,8 +35,9 @@ var alice = await identityService.CreateAsync(userId, DeviceId.New(), DateTimeOf
 
 // PublicDevice получателя приходит из аутентифицированного каталога сервера.
 var crypto = new ChatCryptoService(keyStore);
-EncryptedEnvelope envelope = await crypto.EncryptTextAsync(
-    "hello",
+var content = new ChatTextContent(ChatContentId.New(), "hello");
+EncryptedEnvelope envelope = await crypto.EncryptContentAsync(
+    content,
     conversationId,
     MessageId.New(),
     alice.DeviceId,
@@ -53,9 +54,36 @@ var receiver = new ChatReceiver(
     new ChatCryptoService(keyStore),
     new MyTransactionalReceivedMessageStore());
 
-ReceiveResult result = await receiver.ReceiveAsync(delivery.Envelope, senderPublicDevice);
+ChatContentReceiveResult result = await receiver.ReceiveContentAsync(
+    delivery.Envelope,
+    senderPublicDevice);
+var projection = new ChatConversationProjection(delivery.Envelope.ConversationId);
+if (result.Delivery is not null)
+{
+    projection.Apply(result.Delivery);
+}
+
 string code = SecurityCodes.Between(myPublicDevice, senderPublicDevice);
 ```
+
+## Ответы, пересылки и реакции
+
+`ChatContentId` идентифицирует одно логическое событие и переиспользуется при шифровании для нескольких устройств. `MessageId` остаётся уникальным ID recipient-specific конверта:
+
+```csharp
+var original = new ChatTextContent(ChatContentId.New(), "first");
+var reply = new ChatTextContent(ChatContentId.New(), "answer", original.ContentId);
+var forwarded = original.Forward(ChatContentId.New());
+var reaction = new ChatReactionContent(
+    ChatContentId.New(),
+    original.ContentId,
+    "👍",
+    ChatReactionOperation.Add);
+```
+
+Пересылка копирует только текст, очищает reply-ссылку и ставит `IsForwarded`. Она не переносит исходного автора, conversation ID или подпись и поэтому не выдаёт отображаемую атрибуцию за криптографическое доказательство. Реакция — отдельное зашифрованное событие `Add`/`Remove`; сервер не видит целевой `ChatContentId` или emoji. `ChatConversationProjection` принимает уже аутентифицированный `ReceivedChatContent`, сохраняет реакцию, пришедшую раньше сообщения, и детерминированно выбирает последнее событие одного пользователя.
+
+Сырые `EncryptTextAsync`, `EncryptAsync`, `DecryptAsync` и `ChatReceiver.ReceiveAsync` сохранены для приложений `0.1.x`–`0.7.x`; они не пытаются угадать тип содержимого. Новые приложения должны явно использовать `EncryptContentAsync`, `DecryptContentAsync` или `ReceiveContentAsync`.
 
 ## HTTP-клиент
 
@@ -77,8 +105,9 @@ await api.CreateConversationAsync(peerUserId, conversationId);
 
 PublicDevice peer = await api.GetDeviceAsync(peerDeviceId)
     ?? throw new InvalidOperationException("Peer device was not found.");
-EncryptedEnvelope envelope = await crypto.EncryptTextAsync(
-    "hello",
+var content = new ChatTextContent(ChatContentId.New(), "hello");
+EncryptedEnvelope envelope = await crypto.EncryptContentAsync(
+    content,
     conversationId,
     MessageId.New(),
     myPublicDevice.DeviceId,
@@ -168,10 +197,10 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 
 Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и оба DB-проекта, выполняет Release build/test/pack и сохраняет все семь `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает семь `.nupkg` вместе с семью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает семь `.nupkg` вместе с семью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а клиент обязан сохранять локальную дедупликацию через транзакционную реализацию `IReceivedMessageStore`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 
 ## Что не входит в v1
 
-UI, production-инфраструктура, интеграция со SkopiClub, группы, вложения, push, backup/recovery ключей и автоматический multi-device fan-out не входят в этот репозиторий. Контракты различают user и device, поэтому один пользователь может иметь несколько устройств, а отправитель создаёт отдельный конверт для каждого устройства-получателя.
+UI, production-инфраструктура, интеграция со SkopiClub, редактирование/удаление сообщений, группы, вложения, push, backup/recovery ключей и автоматический multi-device fan-out не входят в этот репозиторий. Контракты различают user и device, поэтому один пользователь может иметь несколько устройств, а отправитель создаёт отдельный конверт с уникальным `MessageId` для каждого устройства-получателя, переиспользуя один `ChatContentId`.

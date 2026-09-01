@@ -48,6 +48,37 @@ public sealed class ChatCryptoService
         return EncryptAsync(bytes, conversationId, messageId, senderDeviceId, recipient, sentAt, expiresAt, cancellationToken);
     }
 
+    /// <summary>Encodes and encrypts typed text, reply, forward or reaction content for one recipient device.</summary>
+    public async ValueTask<EncryptedEnvelope> EncryptContentAsync(
+        ChatContent content,
+        ConversationId conversationId,
+        MessageId messageId,
+        DeviceId senderDeviceId,
+        PublicDevice recipient,
+        DateTimeOffset sentAt,
+        DateTimeOffset? expiresAt = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        var encoded = ChatContentEncoding.Encode(content);
+        try
+        {
+            return await EncryptAsync(
+                encoded,
+                conversationId,
+                messageId,
+                senderDeviceId,
+                recipient,
+                sentAt,
+                expiresAt,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(encoded);
+        }
+    }
+
     /// <summary>Encrypts one bounded binary payload for exactly one recipient device.</summary>
     public async ValueTask<EncryptedEnvelope> EncryptAsync(
         ReadOnlyMemory<byte> plaintext,
@@ -198,6 +229,23 @@ public sealed class ChatCryptoService
         finally
         {
             CryptographicOperations.ZeroMemory(encryptionPrivate);
+        }
+    }
+
+    /// <summary>Authenticates, decrypts and strictly decodes typed application content.</summary>
+    public async ValueTask<ChatContent> DecryptContentAsync(
+        EncryptedEnvelope envelope,
+        PublicDevice sender,
+        CancellationToken cancellationToken = default)
+    {
+        var plaintext = await DecryptAsync(envelope, sender, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return ChatContentEncoding.Decode(plaintext);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
         }
     }
 

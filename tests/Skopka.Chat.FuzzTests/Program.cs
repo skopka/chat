@@ -1,12 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using SharpFuzz;
+using Skopka.Chat.Client;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Transport.Http;
 
 if (args is ["--replay", var corpusPath])
 {
-    ChatJsonFuzzTarget.Replay(corpusPath);
+    ChatFuzzTarget.Replay(corpusPath);
     return;
 }
 
@@ -15,9 +16,9 @@ if (args.Length != 0)
     throw new ArgumentException("Usage: Skopka.Chat.FuzzTests [--replay <corpus-directory>].", nameof(args));
 }
 
-Fuzzer.OutOfProcess.Run(ChatJsonFuzzTarget.Run);
+Fuzzer.OutOfProcess.Run(ChatFuzzTarget.Run);
 
-internal static class ChatJsonFuzzTarget
+internal static class ChatFuzzTarget
 {
     private const int MaximumInputBytes = (int)SkopkaChatHttpLimits.MaxRequestBodyBytes + 1;
 
@@ -86,8 +87,12 @@ internal static class ChatJsonFuzzTarget
                     }
 
                     break;
-                default:
+                case 6:
                     RoundTrip(json, SkopkaChatHttpJsonContext.Default.SubmitEnvelopeResponse);
+                    break;
+                default:
+                    var content = ChatContentEncoding.Decode(json);
+                    _ = ChatContentEncoding.Decode(ChatContentEncoding.Encode(content));
                     break;
             }
         }
@@ -98,6 +103,10 @@ internal static class ChatJsonFuzzTarget
         catch (ProtocolValidationException)
         {
             // Structurally invalid protocol values are an expected fuzz outcome.
+        }
+        catch (ChatContentFormatException)
+        {
+            // Malformed or unsupported authenticated content is an expected fuzz outcome.
         }
     }
 
@@ -114,9 +123,9 @@ internal static class ChatJsonFuzzTarget
         return value;
     }
 
-    private static byte SelectTarget(byte value) => value is >= (byte)'0' and <= (byte)'6'
+    private static byte SelectTarget(byte value) => value is >= (byte)'0' and <= (byte)'7'
         ? (byte)(value - (byte)'0')
-        : (byte)(value % 7);
+        : (byte)(value % 8);
 
     private static byte[]? ReadBounded(Stream input)
     {

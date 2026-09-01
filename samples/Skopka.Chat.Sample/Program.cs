@@ -1,4 +1,3 @@
-using System.Text;
 using Skopka.Chat.Client;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
@@ -19,8 +18,9 @@ var transport = new InProcessChatTransport(server, serverStore);
 
 var originalText = "Hello Bob — this plaintext never enters the server API.";
 var aliceCrypto = new ChatCryptoService(aliceKeyStore);
-var envelope = await aliceCrypto.EncryptTextAsync(
-    originalText,
+var originalContent = new ChatTextContent(ChatContentId.New(), originalText);
+var envelope = await aliceCrypto.EncryptContentAsync(
+    originalContent,
     conversationId,
     MessageId.New(),
     alice.DeviceId,
@@ -37,9 +37,11 @@ var sender = await transport.GetDeviceAsync(delivery.Envelope.SenderDeviceId) ??
     throw new InvalidOperationException("Sender directory entry is missing.");
 var bobLocalStore = new InMemoryReceivedMessageStore();
 var receiver = new ChatReceiver(new ChatCryptoService(bobKeyStore), bobLocalStore);
-var received = await receiver.ReceiveAsync(delivery.Envelope, sender);
-var roundTripMatches = received.Message is not null &&
-    Encoding.UTF8.GetString(received.Message.ExportPlaintext()) == originalText;
+var received = await receiver.ReceiveContentAsync(delivery.Envelope, sender);
+var projection = new ChatConversationProjection(conversationId);
+var roundTripMatches = received.Delivery is not null &&
+    projection.Apply(received.Delivery) == ChatProjectionApplyResult.Applied &&
+    projection.Snapshot().Single().Text == originalText;
 await transport.AcknowledgeAsync(bob.DeviceId, delivery.Envelope.MessageId, DateTimeOffset.UtcNow);
 
 Console.WriteLine($"Bob authenticated and decrypted the original text: {roundTripMatches}");

@@ -30,5 +30,12 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.5.x` | v1 | v1 | Adds PostgreSQL concurrency, deterministic delivery and TTL reliability gates; canonical envelope bytes are unchanged. |
 | `0.6.x` | v1 | v1 | Adds a strict bounded HTTP JSON profile and hostile-input regression corpus; routes, DTOs and canonical envelope bytes are unchanged. |
 | `0.7.x` | v1 | v1 | Adds coverage-guided JSON fuzzing, real-Kestrel edge gates and coordinated package publication; the HTTP and canonical envelope formats are unchanged. |
+| `0.8.x` | v1 | v1 | Adds an explicit encrypted-content v1 inside ciphertext for replies, safe forwards and reactions; HTTP routes and canonical envelope bytes are unchanged. Raw `0.1.x`–`0.7.x` plaintext APIs remain explicit and supported. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
+
+## Encrypted content compatibility
+
+Encrypted content has its own version discriminator because it is parsed only after protocol-v1 authentication and decryption. Content v1 is emitted only by the explicit typed-content APIs introduced in package `0.8.0`. Older clients can still authenticate and decrypt those envelopes as opaque bytes but cannot interpret their typed contents. New clients do not heuristically parse legacy raw text; callers choose the raw or typed receive API deliberately.
+
+One `ChatContentId` identifies the same logical event across recipient-device fan-out, while every recipient-specific envelope keeps a unique `MessageId`. A future incompatible content change must add a content version and retain an explicit decoder for every version it claims to accept. It must not change protocol-v1 envelope bytes unless a distinct outer protocol version is also introduced.

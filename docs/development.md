@@ -72,7 +72,7 @@ All HTTP changes should include negative cases. The deterministic hostile-input 
 
 ## Coverage-guided JSON fuzzing
 
-The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams, selects one of the seven shared HTTP contracts, performs strict deserialization, protocol mapping where applicable, and a successful-value round trip. `JsonException` and `ProtocolValidationException` are expected rejection outcomes; other exceptions fail the run.
+The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of eight targets: seven shared HTTP contracts or the authenticated content-v1 decoder. Successful HTTP values and typed content are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; other exceptions fail the run.
 
 Replay committed seeds and minimized regressions on any platform:
 
@@ -86,7 +86,7 @@ Run a coverage-guided session on Linux after installing AFL++:
 bash eng/run-json-fuzz-smoke.sh 60 artifacts/fuzz-local
 ```
 
-The second argument is a new output directory; the script refuses to overwrite an existing path. It builds and instruments isolated DLL copies with the repo-local SharpFuzz tool, so release binaries remain untouched. Minimize any crash input, add it to `tests/Skopka.Chat.FuzzTests/corpus`, add a focused regression test when possible, and only then fix the defect.
+The second argument is a new output directory; the script refuses to overwrite an existing path. It builds and instruments isolated HTTP-contract and Client DLL copies with the repo-local SharpFuzz tool, so release binaries remain untouched. Minimize any crash input, add it to `tests/Skopka.Chat.FuzzTests/corpus`, add a focused regression test when possible, and only then fix the defect.
 
 ## Making a change
 

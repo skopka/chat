@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>Skopka.Chat.Client</PackageId>
-    <Description>Client-side device identity, encryption, authentication and fingerprints for Skopka.Chat.</Description>
+    <Description>Client-side identity, E2EE, typed chat content, reactions and local projection for Skopka.Chat.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />

@@ -75,7 +75,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes afl++
 
-      - name: Run coverage-guided JSON fuzz smoke
+      - name: Run coverage-guided JSON and content fuzz smoke
         run: bash eng/run-json-fuzz-smoke.sh 10 "${{ github.workspace }}/artifacts/fuzz-smoke"
 
       - name: Audit NuGet dependencies

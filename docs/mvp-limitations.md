@@ -8,9 +8,9 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 
 ## Functional limits
 
-- Personal text chat only.
+- Personal text chat with encrypted replies, non-provenance forwarding and reaction events.
 - One envelope per recipient device; the host owns device enumeration and fan-out.
-- No groups, attachments, streaming media or reactions.
+- No message editing/deletion, groups, attachments or streaming media.
 - No push-notification provider integration.
 - No key backup, recovery, transfer or account reset protocol.
 - The optional Minimal API and typed HTTP client support request/response polling only; no WebSocket or SignalR push transport is included.
@@ -29,6 +29,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - Run migration/TTL cleanup jobs and configure retention, database encryption, backup and operational monitoring.
 - Keep the PostgreSQL reliability and HTTP integration gates mandatory in release CI; extend them with sustained-load, deployment-specific failover and restore exercises.
 - Treat decrypted local messages as sensitive and implement transactional `IReceivedMessageStore` deduplication.
+- Persist typed content and projection history only in a protected local store; the included projection is in-memory and does not provide backup, retention or cross-device synchronization.
 
 ## Roadmap
 

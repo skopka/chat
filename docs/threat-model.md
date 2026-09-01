@@ -4,7 +4,7 @@ Status: accepted for protocol version 1 (MVP), 2026-08-31.
 
 ## Scope and assets
 
-Skopka.Chat v1 protects the contents and authenticity of one-to-one text messages sent between individually identified devices. Each device owns an X25519 encryption key and an Ed25519 signing key. Private keys remain on that device behind the `IDeviceKeyStore` abstraction. The server stores only public device data, routing metadata, ciphertext and delivery state.
+Skopka.Chat v1 protects the contents and authenticity of one-to-one encrypted events sent between individually identified devices. Typed client content may represent text, replies, non-provenance forwards and reaction changes. Each device owns an X25519 encryption key and an Ed25519 signing key. Private keys remain on that device behind the `IDeviceKeyStore` abstraction. The server stores only public device data, routing metadata, ciphertext and delivery state.
 
 The assets are message plaintext, device private keys, message integrity, sender authenticity, and the user's ability to notice that a device key changed by comparing a fingerprint/security code out of band.
 
@@ -45,7 +45,7 @@ The library deliberately supplies no filesystem key store. A host must implement
 
 ## Version 1 limitations and deferred work
 
-- One-to-one text messages only.
+- One-to-one text, reply, forward-marker and reaction events only; no edits, deletes or rich content.
 - No Double Ratchet, forward secrecy guarantee, post-compromise security, deniability or Signal interoperability.
 - No groups, attachments, push notifications, key backup/recovery or server federation.
 - Multi-device users are representable, but the sender creates one envelope per recipient device; device fan-out policy belongs to the host application.
@@ -60,6 +60,14 @@ Before production use, obtain an independent protocol and implementation audit, 
 `Skopka.Chat.Server.AspNetCore` treats the host authentication handler as a new trust boundary. It requires an authenticated principal and maps exactly one user and one device claim before endpoint logic. It then binds registration, submission, delivery polling, acknowledgement and revocation to that identity. Supplying a forged principal, a permissive development handler, an incorrectly validated JWT, or claims copied from untrusted headers defeats this boundary.
 
 The package does not log or persist access tokens and does not select a token format. TLS, issuer/audience/signature/lifetime validation, CORS, CSRF protection for cookie authentication, rate limits, proxy request limits and authorization-policy configuration belong to the host. HTTP authorization does not change the E2EE limitations above and does not hide routing metadata from the server.
+
+## Typed content and local projection boundary
+
+Typed content is decoded only after protocol-v1 signature verification and AEAD authentication. Its content ID, reply target, forward marker, reaction target and reaction token are inside ciphertext and are not available to the server. The strict content-v1 parser applies fixed discriminators, strict UTF-8 and byte bounds and returns a generic format exception for malformed authenticated bytes.
+
+`IsForwarded` authenticates only the current sender's assertion that text was copied. It carries no original author or signature and must not be rendered as verified provenance. Reaction state is scoped to the authenticated sender user from the public device directory; a sender-controlled timestamp can reorder only that user's own reaction. A reused content ID with conflicting authenticated data is excluded by the in-memory projection instead of silently replacing plaintext.
+
+The projection, its snapshots and any host persistence contain plaintext. The library does not encrypt local history, synchronize it between the user's devices, enforce retention or redact host UI/notifications. Applications must feed the projection only content returned by `ReceiveContentAsync` or equivalently verified protected local records.
 
 ## HTTP client boundary
 

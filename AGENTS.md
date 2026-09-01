@@ -34,7 +34,7 @@ Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitatio
 | Path | Responsibility | Allowed direction |
 | --- | --- | --- |
 | `src/Skopka.Chat.Protocol` | IDs, bounds, protocol DTOs, validation, canonical v1 encoding | No framework, persistence, server, or client dependency |
-| `src/Skopka.Chat.Client` | Device identity, key storage abstractions, NSec cryptography, fingerprints, receive deduplication, `IChatTransport` | Protocol only, plus the reviewed crypto dependency |
+| `src/Skopka.Chat.Client` | Device identity, key storage abstractions, NSec cryptography, typed encrypted content/projection, fingerprints, receive deduplication, `IChatTransport` | Protocol only, plus the reviewed crypto dependency |
 | `src/Skopka.Chat.Transport.Http` | Shared routes, HTTP DTOs, limits, mappings, strict source-generated JSON metadata | Protocol only |
 | `src/Skopka.Chat.Client.Http` | Authenticated typed HTTP client, bounded responses, retries | Client + Transport.Http; never Server |
 | `src/Skopka.Chat.Server` | Transport-neutral device/conversation/envelope engine and repository contracts | Protocol only; never Client or ASP.NET Core |
@@ -58,6 +58,7 @@ Do not solve dependency cycles by moving client cryptography into Protocol or by
 - `AddSkopkaChatAspNetCore` applies that strict profile to shared Minimal API `HttpJsonOptions`; document compatibility implications if this integration changes.
 - Keep request/response byte bounds before expensive parsing or cryptographic work. Protocol byte-array length validation remains authoritative after Base64 decoding.
 - Preserve deterministic ordering. PostgreSQL pending delivery is ordered by `accepted_at`, then `message_id`.
+- Typed content is parsed only after envelope authentication. Preserve its separate version, strict UTF-8 and bounds; do not treat a forward marker as verified original attribution or collapse recipient-specific `MessageId` into logical `ChatContentId`.
 - Treat EF migrations as append-only history. Add a new migration for schema/index changes; do not rewrite a migration that may already have been applied.
 - Match the existing xUnit naming style: descriptive method names with underscores and deterministic data. Security regressions should assert both rejection and absence of state/log/exception reflection.
 - Avoid speculative abstractions, unrelated cleanup, or new production claims outside the requested scope.
@@ -83,6 +84,8 @@ Replay the bounded JSON fuzz corpus on every HTTP contract change:
 ```powershell
 dotnet run --project tests/Skopka.Chat.FuzzTests --configuration Release --no-build -- --replay tests/Skopka.Chat.FuzzTests/corpus
 ```
+
+The same corpus includes the encrypted-content decoder and must also be replayed on typed content/parser changes.
 
 On Linux with AFL++ installed, run the coverage-guided smoke harness. Its output directory must not already exist:
 
@@ -111,6 +114,7 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Re
 ## Change-specific expectations
 
 - Protocol or cryptography: run Protocol, Client, and in-memory integration tests; update compatibility/threat documentation and golden vectors when applicable.
+- Typed client content/projection: run Client and in-memory integration tests, replay the fuzz corpus (and AFL++ when available), preserve content-version golden bytes, and update compatibility/threat documentation.
 - Server rules: run Server and in-memory integration tests; prove rejection before persistence.
 - HTTP DTO/parser/client/server changes: run both HTTP unit projects, fuzz corpus replay (and AFL++ when available), and `Skopka.Chat.Http.IntegrationTests`; cover malformed and hostile inputs on both sides.
 - PostgreSQL query/model/migration changes: run the complete PostgreSQL project against a disposable database and the PostgreSQL-backed HTTP integration.
@@ -126,6 +130,7 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Re
 - `docs/protocol-compatibility.md` records package/protocol compatibility.
 - `docs/threat-model.md`, `docs/security-self-review.md`, and `docs/mvp-limitations.md` must remain candid; do not weaken limitations to market unfinished work.
 - `docs/adr/` records durable architecture/security decisions. Add a numbered ADR when changing a trust boundary, wire/storage semantics, dependency direction, or release gate.
+- `docs/adr/0009-encrypted-content-events.md` defines typed content IDs, replies, forward/reaction semantics and projection conflicts separately from the outer protocol version.
 
 Update documentation in the same change when public APIs, package boundaries, protocol behavior, security assumptions, deployment responsibilities, migrations, or verification commands change.
 

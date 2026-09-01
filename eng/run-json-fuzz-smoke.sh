@@ -33,11 +33,13 @@ dotnet build "$fuzz_project" \
 
 fuzz_assembly="$binary_directory/Skopka.Chat.FuzzTests.dll"
 transport_assembly="$binary_directory/Skopka.Chat.Transport.Http.dll"
+client_assembly="$binary_directory/Skopka.Chat.Client.dll"
 
 dotnet "$fuzz_assembly" --replay "$corpus_directory"
 dotnet tool restore
 # Keep the harness uninstrumented: its entry point runs before SharpFuzz initializes AFL shared memory.
 dotnet tool run sharpfuzz -- "$transport_assembly"
+dotnet tool run sharpfuzz -- "$client_assembly"
 
 export AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
 export AFL_NO_AFFINITY=1

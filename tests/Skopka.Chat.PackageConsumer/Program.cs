@@ -6,6 +6,10 @@ using Skopka.Chat.Server;
 using Skopka.Chat.Server.AspNetCore;
 using Skopka.Chat.Transport.Http;
 
+var typedContent = new ChatTextContent(ChatContentId.New(), "package consumer");
+_ = ChatContentEncoding.Decode(ChatContentEncoding.Encode(typedContent));
+_ = new ChatConversationProjection(ConversationId.New());
+
 Type[] packageSurfaces =
 [
     typeof(ProtocolVersions),

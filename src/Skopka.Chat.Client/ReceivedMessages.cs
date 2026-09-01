@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client;
@@ -17,7 +18,7 @@ public sealed class ReceivedMessage
         _plaintext = plaintext.ToArray();
     }
 
-    /// <summary>Logical message identifier.</summary>
+    /// <summary>Delivery-envelope idempotency identifier.</summary>
     public MessageId MessageId { get; }
 
     /// <summary>Conversation identifier.</summary>
@@ -74,6 +75,82 @@ public sealed record ReceiveResult(bool Added, ReceivedMessage? Message)
     public static ReceiveResult Duplicate { get; } = new(false, null);
 }
 
+/// <summary>Authenticated typed content and the delivery metadata that carried it.</summary>
+public sealed class ReceivedChatContent
+{
+    /// <summary>Creates a verified content delivery, typically when restoring a protected local store.</summary>
+    public ReceivedChatContent(
+        MessageId deliveryMessageId,
+        ConversationId conversationId,
+        UserId senderUserId,
+        DeviceId senderDeviceId,
+        DateTimeOffset sentAt,
+        ChatContent content)
+    {
+        if (deliveryMessageId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Delivery message ID must not be empty.", nameof(deliveryMessageId));
+        }
+
+        if (conversationId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Conversation ID must not be empty.", nameof(conversationId));
+        }
+
+        if (senderUserId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Sender user ID must not be empty.", nameof(senderUserId));
+        }
+
+        if (senderDeviceId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Sender device ID must not be empty.", nameof(senderDeviceId));
+        }
+
+        if (sentAt == default)
+        {
+            throw new ArgumentException("Sent timestamp must not be empty.", nameof(sentAt));
+        }
+
+        ArgumentNullException.ThrowIfNull(content);
+        DeliveryMessageId = deliveryMessageId;
+        ConversationId = conversationId;
+        SenderUserId = senderUserId;
+        SenderDeviceId = senderDeviceId;
+        SentAt = sentAt;
+        Content = content;
+    }
+
+    /// <summary>Idempotency identifier of this recipient-specific envelope.</summary>
+    public MessageId DeliveryMessageId { get; }
+
+    /// <summary>Conversation authenticated by the envelope.</summary>
+    public ConversationId ConversationId { get; }
+
+    /// <summary>User owning the verified sender device directory entry.</summary>
+    public UserId SenderUserId { get; }
+
+    /// <summary>Device whose signature authenticated the envelope.</summary>
+    public DeviceId SenderDeviceId { get; }
+
+    /// <summary>Sender-supplied timestamp authenticated by the envelope.</summary>
+    public DateTimeOffset SentAt { get; }
+
+    /// <summary>Strictly decoded application content.</summary>
+    public ChatContent Content { get; }
+
+    /// <inheritdoc />
+    public override string ToString() =>
+        $"ReceivedChatContent(DeliveryMessageId={DeliveryMessageId}, ContentId={Content.ContentId}, Payload=[REDACTED])";
+}
+
+/// <summary>Result of processing one typed encrypted delivery.</summary>
+public sealed record ChatContentReceiveResult(bool Added, ReceivedChatContent? Delivery)
+{
+    /// <summary>Duplicate delivery result.</summary>
+    public static ChatContentReceiveResult Duplicate { get; } = new(false, null);
+}
+
 /// <summary>Authenticates, decrypts and atomically deduplicates local deliveries.</summary>
 public sealed class ChatReceiver
 {
@@ -99,9 +176,56 @@ public sealed class ChatReceiver
         }
 
         var plaintext = await _crypto.DecryptAsync(envelope, sender, cancellationToken).ConfigureAwait(false);
-        var message = new ReceivedMessage(envelope.MessageId, envelope.ConversationId, envelope.SenderDeviceId, plaintext);
-        return await _messages.TryAddAsync(message, cancellationToken).ConfigureAwait(false)
-            ? new ReceiveResult(true, message)
-            : ReceiveResult.Duplicate;
+        try
+        {
+            var message = new ReceivedMessage(envelope.MessageId, envelope.ConversationId, envelope.SenderDeviceId, plaintext);
+            return await _messages.TryAddAsync(message, cancellationToken).ConfigureAwait(false)
+                ? new ReceiveResult(true, message)
+                : ReceiveResult.Duplicate;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    /// <summary>Authenticates, decodes and atomically deduplicates one typed content delivery.</summary>
+    public async ValueTask<ChatContentReceiveResult> ReceiveContentAsync(
+        EncryptedEnvelope envelope,
+        PublicDevice sender,
+        CancellationToken cancellationToken = default)
+    {
+        if (await _messages.ContainsAsync(envelope.MessageId, cancellationToken).ConfigureAwait(false))
+        {
+            return ChatContentReceiveResult.Duplicate;
+        }
+
+        var plaintext = await _crypto.DecryptAsync(envelope, sender, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var content = ChatContentEncoding.Decode(plaintext);
+            var localMessage = new ReceivedMessage(
+                envelope.MessageId,
+                envelope.ConversationId,
+                envelope.SenderDeviceId,
+                plaintext);
+            if (!await _messages.TryAddAsync(localMessage, cancellationToken).ConfigureAwait(false))
+            {
+                return ChatContentReceiveResult.Duplicate;
+            }
+
+            var delivery = new ReceivedChatContent(
+                envelope.MessageId,
+                envelope.ConversationId,
+                sender.UserId,
+                envelope.SenderDeviceId,
+                envelope.SentAt,
+                content);
+            return new ChatContentReceiveResult(true, delivery);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+        }
     }
 }
