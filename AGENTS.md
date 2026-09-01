@@ -121,17 +121,17 @@ $env:SKOPKA_CHAT_FFMPEG_REQUIRED = 'true'
 dotnet test --project tests/Skopka.Chat.Media.Tests --configuration Release --no-restore
 ```
 
-PostgreSQL tests require an explicitly disposable database. They mutate schema and test rows. Never point them at a shared or production database.
+PostgreSQL tests require an explicitly disposable database. They mutate schema and test rows. Never point them at a shared or production database. Prefer the pinned Testcontainers fixture when Docker is available:
 
 ```powershell
-$env:SKOPKA_CHAT_POSTGRES = 'Host=localhost;Port=5432;Database=skopka_chat_tests;Username=postgres;Password=...;Pooling=false'
+$env:SKOPKA_CHAT_POSTGRES_TESTCONTAINERS = 'true'
 $env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
 ```
 
-`SKOPKA_CHAT_POSTGRES_REQUIRED=true` is mandatory for a release-like database gate so a missing connection string fails instead of skipping. CI in `.github/workflows/ci.yml` is the canonical full gate.
+Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external database; it takes precedence over Testcontainers. `SKOPKA_CHAT_POSTGRES_REQUIRED=true` is mandatory for a release-like database gate so a missing external database and disabled Testcontainers fail instead of skipping. CI in `.github/workflows/ci.yml` is the canonical full gate.
 
 ## Change-specific expectations
 

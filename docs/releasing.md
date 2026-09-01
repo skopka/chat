@@ -21,6 +21,8 @@ Do not store the NuGet key in repository secrets, local files, shell history, wo
 4. Commit the release state and recreate packages after the commit. Verify the `.nuspec` repository SHA, sixteen `.nupkg` files, and sixteen `.snupkg` files.
 5. Push the commit to `main` and wait for CI to succeed.
 
+The checked-in CI/release gates set `SKOPKA_CHAT_POSTGRES_TESTCONTAINERS=true` and start a pinned disposable PostgreSQL per test assembly. `SKOPKA_CHAT_POSTGRES` remains an external disposable-database override for environments that cannot expose Docker to the test process.
+
 Package IDs are published in dependency order:
 
 1. `Skopka.Chat.Protocol`

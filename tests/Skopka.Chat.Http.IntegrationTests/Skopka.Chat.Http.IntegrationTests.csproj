@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\Skopka.Chat.Client.Http\Skopka.Chat.Client.Http.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Persistence.PostgreSql\Skopka.Chat.Persistence.PostgreSql.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Server.AspNetCore\Skopka.Chat.Server.AspNetCore.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Testing\Skopka.Chat.Testing.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

@@ -23,7 +23,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.11.0` — первый публичный согласованный набор после `0.7.0`. Текущая ветка готовит `0.12.0`: она сохраняет protocol v1 и существующие content v1/v2 bytes, добавляя immutable encrypted edit events v3, durable client event storage и SQLite-адаптер. Серверные storage по-прежнему получают только ciphertext; локальный client journal после успешной E2EE-проверки содержит plaintext. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.12.0` сохраняет protocol v1 и существующие content v1/v2 bytes, добавляя immutable encrypted edit events v3, durable client event storage и SQLite-адаптер. Серверные storage по-прежнему получают только ciphertext; локальный client journal после успешной E2EE-проверки содержит plaintext. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Документация
 
@@ -292,18 +292,19 @@ dotnet run --project samples/Skopka.Chat.Sample
 
 NuGet-пакеты создаются в `artifacts/packages`.
 
-PostgreSQL integration tests в трёх проектах запускаются только против явно предоставленной одноразовой базы:
+PostgreSQL integration tests в трёх проектах могут автоматически поднять изолированную PostgreSQL 18 через Testcontainers. Нужен запущенный Docker:
 
 ```powershell
-$env:SKOPKA_CHAT_POSTGRES = 'Host=localhost;Database=skopka_chat_tests;Username=postgres;Password=...'
+$env:SKOPKA_CHAT_POSTGRES_TESTCONTAINERS = 'true'
+$env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests
 dotnet test --project tests/Skopka.Chat.Attachments.Tests
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 ```
 
-Без переменной DB-тесты корректно пропускаются; остальные unit и in-memory integration tests не требуют инфраструктуры. Для release-like проверки установите также `$env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'`: тогда отсутствие connection string завершит тест ошибкой.
+Каждая тестовая сборка получает собственный контейнер и удаляет его после выполнения. Для внешней одноразовой БД задайте `SKOPKA_CHAT_POSTGRES`; эта переменная имеет приоритет. Без connection string и флага Testcontainers DB-тесты корректно пропускаются; `SKOPKA_CHAT_POSTGRES_REQUIRED=true` превращает такой пропуск или недоступный Docker в ошибку release-gate.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и все DB-gates, выполняет Release build/test/pack и сохраняет все шестнадцать `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) последовательно запускает все DB-gates через pinned PostgreSQL Testcontainers, выполняет hostile-input suite, Release build/test/pack и сохраняет все шестнадцать `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
 Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает шестнадцать `.nupkg` вместе с шестнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 

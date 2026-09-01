@@ -34,7 +34,7 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.9.x` *(not published)* | v1 | v1 | Development line for optional UI.Core presentation state and adaptable Blazor components. |
 | `0.10.x` *(not published)* | v1 | v1 | Development line for attachment content v2, chunked file AEAD, independent PostgreSQL/S3 storage and authenticated ciphertext HTTP routes. |
 | `0.11.x` | v1 | v1 | First coordinated public set after `0.7.0`; includes the accumulated encrypted-content v1, UI, attachment content v2/storage and client-side media preparation/exact-file mode. Protocol-v1 canonical bytes remain unchanged. |
-| `0.12.x` *(not published)* | v1 | v1 | Adds encrypted content-v3 edits, adaptable edit UI, durable verified client-event storage/synchronization and optional SQLite. Content v1/v2 and protocol-v1 canonical bytes remain unchanged. |
+| `0.12.x` | v1 | v1 | Adds encrypted content-v3 edits, adaptable edit UI, durable verified client-event storage/synchronization and optional SQLite. Content v1/v2 and protocol-v1 canonical bytes remain unchanged. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
 

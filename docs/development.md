@@ -50,20 +50,22 @@ dotnet build Skopka.Chat.sln --configuration Release --no-restore
 dotnet test --solution Skopka.Chat.sln --configuration Release --no-build --no-restore
 ```
 
-Without `SKOPKA_CHAT_POSTGRES`, database-backed tests are reported as skipped. This is useful for local iteration but is not a release-quality result.
+Without `SKOPKA_CHAT_POSTGRES` or `SKOPKA_CHAT_POSTGRES_TESTCONTAINERS=true`, database-backed tests are reported as skipped. This is useful for local iteration but is not a release-quality result.
 
 ## PostgreSQL gates
 
-Use a database created only for this test run. The tests apply migrations and create/delete test data.
+With Docker running, prefer the pinned Testcontainers fixture. Each test assembly starts its own PostgreSQL 18 container on a random host port and disposes it after the assembly completes:
 
 ```powershell
-$env:SKOPKA_CHAT_POSTGRES = 'Host=localhost;Port=5432;Database=skopka_chat_tests;Username=postgres;Password=...;Pooling=false'
+$env:SKOPKA_CHAT_POSTGRES_TESTCONTAINERS = 'true'
 $env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
 ```
+
+To test an external PostgreSQL deployment instead, set `SKOPKA_CHAT_POSTGRES` to an explicitly disposable database; it takes precedence over the Testcontainers flag. The tests apply migrations and create/delete rows, so never use a shared or production database. `SKOPKA_CHAT_POSTGRES_REQUIRED=true` makes a missing test database or unavailable requested container fail rather than skip.
 
 The persistence gate covers migrations, encrypted storage, concurrent identical/conflicting submission, at-least-once polling, first-ack semantics, deterministic ordering, and TTL cleanup. The attachment gate covers its isolated migration, ciphertext-only model, bytea integrity and immutable retry/conflict behavior. The HTTP gate covers the authenticated client/server/E2EE envelope path with both in-memory and migrated PostgreSQL storage.
 

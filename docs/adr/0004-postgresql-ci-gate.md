@@ -2,6 +2,8 @@
 
 Status: accepted for package version 0.4.0.
 
+Container provisioning for this gate is revised by [ADR 0015](0015-postgresql-testcontainers-gates.md).
+
 ## Context
 
 The direct PostgreSQL repository test and the authenticated HTTP/E2EE vertical slice previously covered different storage implementations. A green infrastructure-free test run therefore did not prove that the public HTTP adapters, scoped `ChatServerEngine`, EF Core mappings and migration worked together. The PostgreSQL test also skipped when no connection string was supplied, which is convenient locally but unsafe as a release gate.

@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\src\Skopka.Chat.Attachments\Skopka.Chat.Attachments.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Attachments.PostgreSql\Skopka.Chat.Attachments.PostgreSql.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Attachments.S3\Skopka.Chat.Attachments.S3.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Testing\Skopka.Chat.Testing.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="xunit.v3" />

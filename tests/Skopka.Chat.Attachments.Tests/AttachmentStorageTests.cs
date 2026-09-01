@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Skopka.Chat.Attachments.PostgreSql;
 using Skopka.Chat.Attachments.S3;
 using Skopka.Chat.Protocol;
+using Skopka.Chat.Testing;
 
 namespace Skopka.Chat.Attachments.Tests;
 
@@ -94,7 +95,7 @@ public sealed class AttachmentStorageTests
     [Fact]
     public async Task PostgreSql_store_validates_hash_and_preserves_immutable_idempotency()
     {
-        var connectionString = GetPostgreSqlConnectionStringOrSkip();
+        var connectionString = await GetPostgreSqlConnectionStringOrSkipAsync();
         var attachmentId = AttachmentId.New();
         var conversationId = ConversationId.New();
         var uploaderUserId = UserId.New();
@@ -173,23 +174,8 @@ public sealed class AttachmentStorageTests
         return new AttachmentDbContext(options);
     }
 
-    private static string GetPostgreSqlConnectionStringOrSkip()
-    {
-        var connectionString = Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES");
-        if (!string.IsNullOrWhiteSpace(connectionString))
-        {
-            return connectionString;
-        }
-
-        if (bool.TryParse(Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES_REQUIRED"), out var required) &&
-            required)
-        {
-            Assert.Fail("SKOPKA_CHAT_POSTGRES is required but was not provided.");
-        }
-
-        Assert.Skip("Set SKOPKA_CHAT_POSTGRES to a disposable PostgreSQL database to run this integration test.");
-        return null!;
-    }
+    private static ValueTask<string> GetPostgreSqlConnectionStringOrSkipAsync() =>
+        PostgreSqlTestDatabase.GetConnectionStringOrSkipAsync();
 
     private sealed class RecordingStore : IAttachmentStore
     {

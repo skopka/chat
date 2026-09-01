@@ -17,6 +17,7 @@ using Skopka.Chat.Persistence.PostgreSql;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
 using Skopka.Chat.Server.AspNetCore;
+using Skopka.Chat.Testing;
 
 namespace Skopka.Chat.Http.IntegrationTests;
 
@@ -84,7 +85,7 @@ public sealed class EncryptedHttpRoundTripTests
     [Fact]
     public async Task Alice_to_http_to_PostgreSql_to_Bob_preserves_e2ee()
     {
-        var connectionString = GetPostgreSqlConnectionStringOrSkip();
+        var connectionString = await GetPostgreSqlConnectionStringOrSkipAsync();
         var aliceKeyStore = new InMemoryDeviceKeyStore();
         var bobKeyStore = new InMemoryDeviceKeyStore();
         var alice = await new DeviceIdentityService(aliceKeyStore)
@@ -206,23 +207,8 @@ public sealed class EncryptedHttpRoundTripTests
         return application;
     }
 
-    private static string GetPostgreSqlConnectionStringOrSkip()
-    {
-        var connectionString = Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES");
-        if (!string.IsNullOrWhiteSpace(connectionString))
-        {
-            return connectionString;
-        }
-
-        if (bool.TryParse(Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES_REQUIRED"), out var required) &&
-            required)
-        {
-            Assert.Fail("SKOPKA_CHAT_POSTGRES is required but was not provided.");
-        }
-
-        Assert.Skip("Set SKOPKA_CHAT_POSTGRES to a disposable PostgreSQL database to run this integration test.");
-        return null!;
-    }
+    private static ValueTask<string> GetPostgreSqlConnectionStringOrSkipAsync() =>
+        PostgreSqlTestDatabase.GetConnectionStringOrSkipAsync();
 
     private static async Task CleanupPostgreSqlAsync(
         WebApplication application,

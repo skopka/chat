@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Skopka.Chat.Persistence.PostgreSql;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
+using Skopka.Chat.Testing;
 
 namespace Skopka.Chat.Persistence.PostgreSql.Tests;
 
@@ -34,7 +35,7 @@ public sealed class PostgreSqlPersistenceTests
     [Fact]
     public async Task PostgreSql_saves_and_selects_ciphertext_envelopes()
     {
-        var connectionString = GetPostgreSqlConnectionStringOrSkip();
+        var connectionString = await GetPostgreSqlConnectionStringOrSkipAsync();
 
         await using var context = CreateContext(connectionString);
         await context.Database.MigrateAsync();
@@ -211,23 +212,8 @@ public sealed class PostgreSqlPersistenceTests
         Assert.Equal(live.MessageId, pending.Envelope.MessageId);
     }
 
-    private static string GetPostgreSqlConnectionStringOrSkip()
-    {
-        var connectionString = Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES");
-        if (!string.IsNullOrWhiteSpace(connectionString))
-        {
-            return connectionString;
-        }
-
-        if (bool.TryParse(Environment.GetEnvironmentVariable("SKOPKA_CHAT_POSTGRES_REQUIRED"), out var required) &&
-            required)
-        {
-            Assert.Fail("SKOPKA_CHAT_POSTGRES is required but was not provided.");
-        }
-
-        Assert.Skip("Set SKOPKA_CHAT_POSTGRES to a disposable PostgreSQL database to run this integration test.");
-        return null!;
-    }
+    private static ValueTask<string> GetPostgreSqlConnectionStringOrSkipAsync() =>
+        PostgreSqlTestDatabase.GetConnectionStringOrSkipAsync();
 
     private static ChatServerEngine CreateEngine(ChatDbContext context)
     {
@@ -340,7 +326,7 @@ public sealed class PostgreSqlPersistenceTests
 
         public static async Task<PostgreSqlScenario> CreateAsync()
         {
-            var connectionString = GetPostgreSqlConnectionStringOrSkip();
+            var connectionString = await GetPostgreSqlConnectionStringOrSkipAsync();
             var now = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
             var alice = Device(UserId.New(), DeviceId.New(), KeyId.New(), 1, now);
             var bob = Device(UserId.New(), DeviceId.New(), KeyId.New(), 65, now);

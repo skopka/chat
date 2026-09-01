@@ -71,6 +71,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Skopka.Chat.Client.Storage.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Skopka.Chat.Client.Storage.Tests", "tests\Skopka.Chat.Client.Storage.Tests\Skopka.Chat.Client.Storage.Tests.csproj", "{90AB210A-76C2-4B39-91A1-000000000010}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Skopka.Chat.Testing", "tests\Skopka.Chat.Testing\Skopka.Chat.Testing.csproj", "{90AC220B-76C2-4B39-91A1-000000000011}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -453,6 +455,18 @@ Global
 		{90AB210A-76C2-4B39-91A1-000000000010}.Release|x64.Build.0 = Release|Any CPU
 		{90AB210A-76C2-4B39-91A1-000000000010}.Release|x86.ActiveCfg = Release|Any CPU
 		{90AB210A-76C2-4B39-91A1-000000000010}.Release|x86.Build.0 = Release|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Debug|x64.Build.0 = Debug|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Debug|x86.Build.0 = Debug|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Release|Any CPU.Build.0 = Release|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Release|x64.ActiveCfg = Release|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Release|x64.Build.0 = Release|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Release|x86.ActiveCfg = Release|Any CPU
+		{90AC220B-76C2-4B39-91A1-000000000011}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -489,5 +503,6 @@ Global
 		{90A81908-76C2-4B39-91A1-000000000008} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{90A92009-76C2-4B39-91A1-000000000009} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{90AB210A-76C2-4B39-91A1-000000000010} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{90AC220B-76C2-4B39-91A1-000000000011} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

@@ -34,5 +34,6 @@
 - [`adr/0012-client-media-preparation.md`](adr/0012-client-media-preparation.md) — automatic client-side media compression and exact-file semantics.
 - [`adr/0013-encrypted-message-edits.md`](adr/0013-encrypted-message-edits.md) — immutable encrypted edit events, author checks and deterministic projection.
 - [`adr/0014-durable-client-events-and-sync.md`](adr/0014-durable-client-events-and-sync.md) — durable client journal, SQLite plaintext boundary and store/apply/ack ordering.
+- [`adr/0015-postgresql-testcontainers-gates.md`](adr/0015-postgresql-testcontainers-gates.md) — pinned disposable PostgreSQL fixtures for local, CI and release gates.
 
 ADRs describe accepted decisions, not production certification. Start with the threat model and MVP limitations before integrating the packages into a real host.
