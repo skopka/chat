@@ -8,12 +8,19 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.8.0</ChatPackageVersion>
+    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.11.0</ChatPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Skopka.Chat.Protocol" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Attachments" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Attachments.PostgreSql" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Attachments.S3" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Client" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Media" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Media.FFmpeg" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.UI.Core" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.UI.Blazor" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Transport.Http" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Client.Http" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Server" Version="$(ChatPackageVersion)" />

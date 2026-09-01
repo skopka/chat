@@ -34,11 +34,18 @@ Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitatio
 | Path | Responsibility | Allowed direction |
 | --- | --- | --- |
 | `src/Skopka.Chat.Protocol` | IDs, bounds, protocol DTOs, validation, canonical v1 encoding | No framework, persistence, server, or client dependency |
-| `src/Skopka.Chat.Client` | Device identity, key storage abstractions, NSec cryptography, typed encrypted content/projection, fingerprints, receive deduplication, `IChatTransport` | Protocol only, plus the reviewed crypto dependency |
+| `src/Skopka.Chat.Attachments` | Opaque attachment IDs, immutable ciphertext storage and host authorization contracts | Protocol only |
+| `src/Skopka.Chat.Attachments.PostgreSql` | Isolated bounded `bytea` attachment storage and migration | Attachments + EF Core/Npgsql |
+| `src/Skopka.Chat.Attachments.S3` | S3-compatible immutable encrypted-object storage | Attachments + reviewed AWS S3 SDK |
+| `src/Skopka.Chat.Client` | Device identity, key storage abstractions, NSec envelope/file cryptography, typed encrypted content/projection, fingerprints, receive deduplication, `IChatTransport` | Protocol + Attachments, plus the reviewed crypto dependency |
+| `src/Skopka.Chat.Media` | Client-side media preparation contracts and prepare/encrypt/upload orchestration | Client only; never transport, server, persistence, or a media executable |
+| `src/Skopka.Chat.Media.FFmpeg` | Optional FFmpeg photo/video transformer over a host-protected plaintext work directory | Media only; the host supplies and maintains the executable |
+| `src/Skopka.Chat.UI.Core` | Framework-independent conversation presentation state and host-owned send boundary | Client only; never transport, server, persistence, or a UI framework |
+| `src/Skopka.Chat.UI.Blazor` | Themeable, replaceable Blazor components and localized UI strings | UI.Core plus the ASP.NET Core shared framework; never server or persistence |
 | `src/Skopka.Chat.Transport.Http` | Shared routes, HTTP DTOs, limits, mappings, strict source-generated JSON metadata | Protocol only |
-| `src/Skopka.Chat.Client.Http` | Authenticated typed HTTP client, bounded responses, retries | Client + Transport.Http; never Server |
+| `src/Skopka.Chat.Client.Http` | Authenticated typed HTTP client, bounded responses, retries and encrypted attachment upload adapter | Client + Media + Transport.Http; never Server |
 | `src/Skopka.Chat.Server` | Transport-neutral device/conversation/envelope engine and repository contracts | Protocol only; never Client or ASP.NET Core |
-| `src/Skopka.Chat.Server.AspNetCore` | Authenticated Minimal API adapter and principal mapping | Protocol + Server + Transport.Http; never Client |
+| `src/Skopka.Chat.Server.AspNetCore` | Authenticated Minimal API adapter, principal mapping and optional ciphertext attachment routes | Protocol + Server + Attachments + Transport.Http; never Client |
 | `src/Skopka.Chat.Persistence.PostgreSql` | EF Core/Npgsql implementation, migrations, cleanup | Protocol + Server |
 | `tests/*` | Unit, boundary, in-memory, PostgreSQL, and full HTTP/E2EE tests | May compose only the packages needed by the scenario |
 | `samples/Skopka.Chat.Sample` | Demonstration code, not a production host | Keep security limitations explicit |
@@ -59,6 +66,9 @@ Do not solve dependency cycles by moving client cryptography into Protocol or by
 - Keep request/response byte bounds before expensive parsing or cryptographic work. Protocol byte-array length validation remains authoritative after Base64 decoding.
 - Preserve deterministic ordering. PostgreSQL pending delivery is ordered by `accepted_at`, then `message_id`.
 - Typed content is parsed only after envelope authentication. Preserve its separate version, strict UTF-8 and bounds; do not treat a forward marker as verified original attribution or collapse recipient-specific `MessageId` into logical `ChatContentId`.
+- Attachment content v2 and chunk framing v1 are canonical security formats. Keep file key/name/MIME/caption out of server/storage metadata, never reuse a nonce/index pair, validate exact length/hash before immutable storage, and require callers to discard partial plaintext destinations after failure.
+- Media preparation is client-side plaintext processing before attachment encryption. `File` mode must be byte-exact and never invoke FFmpeg; `Auto` must safely retain the original when transformation is unavailable or not smaller. Use generated paths only, generic failures, direct process arguments without a shell, and a host-protected working directory with bounded time/disk/concurrency and startup cleanup.
+- UI packages handle decrypted managed strings. Keep messages HTML-encoded by default, retain only generic expected-failure state, and keep encryption, device fan-out, protected history and transport errors behind the host-owned `IChatContentSender` boundary.
 - Treat EF migrations as append-only history. Add a new migration for schema/index changes; do not rewrite a migration that may already have been applied.
 - Match the existing xUnit naming style: descriptive method names with underscores and deterministic data. Security regressions should assert both rejection and absence of state/log/exception reflection.
 - Avoid speculative abstractions, unrelated cleanup, or new production claims outside the requested scope.
@@ -100,12 +110,21 @@ dotnet test --project tests/Skopka.Chat.Client.Http.Tests --no-restore
 dotnet test --project tests/Skopka.Chat.Server.AspNetCore.Tests --no-restore
 ```
 
+Certify a host-installed FFmpeg/ffprobe pair with synthetic media when the media adapter changes or before deploying that binary:
+
+```powershell
+$env:SKOPKA_CHAT_FFMPEG = (Get-Command ffmpeg).Source
+$env:SKOPKA_CHAT_FFMPEG_REQUIRED = 'true'
+dotnet test --project tests/Skopka.Chat.Media.Tests --configuration Release --no-restore
+```
+
 PostgreSQL tests require an explicitly disposable database. They mutate schema and test rows. Never point them at a shared or production database.
 
 ```powershell
 $env:SKOPKA_CHAT_POSTGRES = 'Host=localhost;Port=5432;Database=skopka_chat_tests;Username=postgres;Password=...;Pooling=false'
 $env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
+dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
 ```
 
@@ -115,9 +134,12 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Re
 
 - Protocol or cryptography: run Protocol, Client, and in-memory integration tests; update compatibility/threat documentation and golden vectors when applicable.
 - Typed client content/projection: run Client and in-memory integration tests, replay the fuzz corpus (and AFL++ when available), preserve content-version golden bytes, and update compatibility/threat documentation.
+- UI state/components: run both UI test projects, verify host templates and localized strings remain replaceable, and prove the UI assemblies do not reference Server or Persistence.
 - Server rules: run Server and in-memory integration tests; prove rejection before persistence.
 - HTTP DTO/parser/client/server changes: run both HTTP unit projects, fuzz corpus replay (and AFL++ when available), and `Skopka.Chat.Http.IntegrationTests`; cover malformed and hostile inputs on both sides.
 - PostgreSQL query/model/migration changes: run the complete PostgreSQL project against a disposable database and the PostgreSQL-backed HTTP integration.
+- Attachment crypto/storage/HTTP changes: run Client, Attachments, both HTTP projects, content fuzz replay/AFL++, and the attachment PostgreSQL gate; test truncation, trailing data, tampering, ID conflict, authorization and partial-destination behavior.
+- Media preparation changes: run Media tests plus Client and Client.Http tests; prove exact `File` bypass, `Auto` fallback, generated path isolation, bounded output, generic failures and prepare-before-encrypt ordering. A fake runner does not certify a deployment's FFmpeg binary; run the opt-in synthetic conformance gate against the selected host build.
 - Authentication/authorization changes: include missing, malformed, duplicate, and cross-user/device negative cases; never use untrusted headers as a production authentication example.
 - Dependency changes: update only `Directory.Packages.props`, review transitive/native impact, restore, and run the complete gate.
 - Documentation-only changes: run `git diff --check` and validate every local link/path and every command against the repository.
@@ -131,6 +153,8 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Re
 - `docs/threat-model.md`, `docs/security-self-review.md`, and `docs/mvp-limitations.md` must remain candid; do not weaken limitations to market unfinished work.
 - `docs/adr/` records durable architecture/security decisions. Add a numbered ADR when changing a trust boundary, wire/storage semantics, dependency direction, or release gate.
 - `docs/adr/0009-encrypted-content-events.md` defines typed content IDs, replies, forward/reaction semantics and projection conflicts separately from the outer protocol version.
+- `docs/adr/0011-encrypted-attachments-and-storage.md` defines content-v2 manifests, chunk framing, storage visibility and PostgreSQL/S3/HTTP boundaries.
+- `docs/adr/0012-client-media-preparation.md` defines client-only photo/video transformation, send modes, plaintext work files and unchanged content-v2 compatibility.
 
 Update documentation in the same change when public APIs, package boundaries, protocol behavior, security assumptions, deployment responsibilities, migrations, or verification commands change.
 
@@ -143,7 +167,7 @@ Before a requested release or version commit:
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly seven versioned `.nupkg` and seven matching `.snupkg` files were produced in `artifacts/packages`, run the package consumer, and ensure the working tree is clean.
+6. Confirm exactly fourteen versioned `.nupkg` and fourteen matching `.snupkg` files were produced in `artifacts/packages`, run the package consumer, and ensure the working tree is clean.
 
 Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 

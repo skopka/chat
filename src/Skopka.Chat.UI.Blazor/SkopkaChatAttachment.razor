@@ -1,0 +1,172 @@
+<article class="@AttachmentClass" data-content-id="@Attachment.ContentId" aria-label="@ResolvedSenderLabel">
+    <header class="skopka-chat-message__header">
+        <span class="skopka-chat-message__sender">@ResolvedSenderLabel</span>
+        <time datetime="@Attachment.SentAt.ToString("O", CultureInfo.InvariantCulture)">@ResolvedTime</time>
+    </header>
+
+    @if (Attachment.ReplyToContentId is { } replyId)
+    {
+        var reply = ViewModel.Timeline.FirstOrDefault(item => item.ContentId == replyId);
+        <div class="skopka-chat-message__reply">
+            <span class="skopka-chat-message__reply-label">@Strings.ReplyTo</span>
+            <span class="skopka-chat-message__reply-text">@GetReplyLabel(reply)</span>
+        </div>
+    }
+
+    <div class="skopka-chat-attachment__file">
+        <span class="skopka-chat-attachment__icon" aria-hidden="true">📎</span>
+        <div class="skopka-chat-attachment__metadata">
+            <strong>@Attachment.FileName</strong>
+            <span>@Attachment.MediaType · @FormatSize(Attachment.PlaintextLength)</span>
+        </div>
+        @if (DownloadRequested.HasDelegate)
+        {
+            <button type="button"
+                    class="skopka-chat-message__action"
+                    disabled="@_commandPending"
+                    @onclick="DownloadAsync">@Strings.Download</button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(Attachment.Caption))
+    {
+        <p class="skopka-chat-message__text">@Attachment.Caption</p>
+    }
+
+    @if (Attachment.Reactions.Count > 0)
+    {
+        <div class="skopka-chat-message__reactions" aria-label="@Strings.Reactions">
+            @foreach (var reaction in Attachment.Reactions)
+            {
+                var isActive = reaction.SenderUserIds.Contains(ViewModel.CurrentUserId);
+                <button type="button"
+                        class="@(isActive ? "skopka-chat-message__reaction skopka-chat-message__reaction--active" : "skopka-chat-message__reaction")"
+                        aria-pressed="@isActive"
+                        disabled="@_commandPending"
+                        @onclick="() => ToggleReactionAsync(reaction.Reaction)">
+                    <span>@reaction.Reaction</span>
+                    <span class="skopka-chat-message__reaction-count">@reaction.Count</span>
+                </button>
+            }
+        </div>
+    }
+
+    @if (ShowActions)
+    {
+        <footer class="skopka-chat-message__actions">
+            <div class="skopka-chat-message__quick-reactions" aria-label="@Strings.Reactions">
+                @foreach (var reaction in ReactionChoices)
+                {
+                    <button type="button"
+                            class="skopka-chat-message__action"
+                            aria-label="@($"{Strings.Reactions}: {reaction}")"
+                            disabled="@_commandPending"
+                            @onclick="() => ToggleReactionAsync(reaction)">@reaction</button>
+                }
+            </div>
+            <button type="button" class="skopka-chat-message__action" @onclick="BeginReply">@Strings.Reply</button>
+        </footer>
+    }
+</article>
+
+@code {
+    private bool _commandPending;
+
+    /// <summary>Owning presentation model.</summary>
+    [Parameter, EditorRequired]
+    public ChatViewModel ViewModel { get; set; } = null!;
+
+    /// <summary>Projected attachment to render.</summary>
+    [Parameter, EditorRequired]
+    public ProjectedChatAttachment Attachment { get; set; } = null!;
+
+    /// <summary>Localized strings.</summary>
+    [Parameter]
+    public SkopkaChatStrings Strings { get; set; } = SkopkaChatStrings.Default;
+
+    /// <summary>Quick-reaction choices.</summary>
+    [Parameter]
+    public IReadOnlyList<string> ReactionChoices { get; set; } = SkopkaChatDefaults.Reactions;
+
+    /// <summary>Whether default reply and quick-reaction actions are visible.</summary>
+    [Parameter]
+    public bool ShowActions { get; set; } = true;
+
+    /// <summary>Host callback that downloads and decrypts the attachment.</summary>
+    [Parameter]
+    public EventCallback<ProjectedChatAttachment> DownloadRequested { get; set; }
+
+    /// <summary>Generic expected-failure callback.</summary>
+    [Parameter]
+    public EventCallback<SkopkaChatCommand> CommandFailed { get; set; }
+
+    /// <summary>Optional sender-label formatter.</summary>
+    [Parameter]
+    public Func<ProjectedChatAttachment, string>? SenderLabel { get; set; }
+
+    /// <summary>Optional timestamp formatter.</summary>
+    [Parameter]
+    public Func<DateTimeOffset, string>? TimeFormatter { get; set; }
+
+    private bool IsOwnAttachment => Attachment.SenderUserId == ViewModel.CurrentUserId;
+
+    private string AttachmentClass => IsOwnAttachment
+        ? "skopka-chat-message skopka-chat-message--own skopka-chat-attachment"
+        : "skopka-chat-message skopka-chat-message--peer skopka-chat-attachment";
+
+    private string ResolvedSenderLabel => SenderLabel?.Invoke(Attachment) ??
+        (IsOwnAttachment ? Strings.You : Strings.Contact);
+
+    private string ResolvedTime => TimeFormatter?.Invoke(Attachment.SentAt) ??
+        Attachment.SentAt.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        ArgumentNullException.ThrowIfNull(ViewModel);
+        ArgumentNullException.ThrowIfNull(Attachment);
+        ArgumentNullException.ThrowIfNull(Strings);
+        ArgumentNullException.ThrowIfNull(ReactionChoices);
+    }
+
+    private void BeginReply() => ViewModel.BeginReply(Attachment.ContentId);
+
+    private Task DownloadAsync() => DownloadRequested.InvokeAsync(Attachment);
+
+    private async Task ToggleReactionAsync(string reaction)
+    {
+        _commandPending = true;
+        try
+        {
+            if (!await ViewModel.ToggleReactionAsync(Attachment.ContentId, reaction))
+            {
+                await CommandFailed.InvokeAsync(SkopkaChatCommand.ToggleReaction);
+            }
+        }
+        finally
+        {
+            _commandPending = false;
+        }
+    }
+
+    private string GetReplyLabel(IProjectedChatItem? item) => item switch
+    {
+        ProjectedChatMessage message => message.Text,
+        ProjectedChatAttachment attachment => attachment.FileName,
+        _ => Strings.ReplyUnavailable,
+    };
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = ["B", "KiB", "MiB", "GiB"];
+        var value = (double)bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return $"{value:0.#} {units[unit]}";
+    }
+}

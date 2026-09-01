@@ -7,6 +7,7 @@ This guide is for human contributors. Coding agents must also follow the reposit
 - .NET SDK selected by [`global.json`](../global.json) (`10.0.101` with latest-patch roll-forward).
 - PowerShell examples below also work with equivalent environment-variable syntax in another shell.
 - Docker or a separately provisioned **disposable** PostgreSQL database for persistence gates.
+- Optional host-maintained FFmpeg executable and a private working directory when testing `Skopka.Chat.Media.FFmpeg` against real media.
 - AFL++ on Linux for coverage-guided fuzzing; corpus replay itself is cross-platform.
 
 NuGet restore uses only the source declared in [`NuGet.Config`](../NuGet.Config). Dependency versions are centralized in [`Directory.Packages.props`](../Directory.Packages.props); package/repository metadata is centralized in [`Directory.Build.props`](../Directory.Build.props).
@@ -16,9 +17,16 @@ NuGet restore uses only the source declared in [`NuGet.Config`](../NuGet.Config)
 ```mermaid
 flowchart TD
     Protocol[Skopka.Chat.Protocol]
+    Attachments[Skopka.Chat.Attachments] --> Protocol
     Client[Skopka.Chat.Client] --> Protocol
+    Client --> Attachments
+    Media[Skopka.Chat.Media] --> Client
+    Ffmpeg[Skopka.Chat.Media.FFmpeg] --> Media
+    UiCore[Skopka.Chat.UI.Core] --> Client
+    UiBlazor[Skopka.Chat.UI.Blazor] --> UiCore
     HttpContract[Skopka.Chat.Transport.Http] --> Protocol
     HttpClient[Skopka.Chat.Client.Http] --> Client
+    HttpClient --> Media
     HttpClient --> HttpContract
     Server[Skopka.Chat.Server] --> Protocol
     AspNet[Skopka.Chat.Server.AspNetCore] --> Server
@@ -27,7 +35,7 @@ flowchart TD
     Persistence --> Protocol
 ```
 
-The arrows are intentional trust and dependency boundaries. In particular, Protocol is framework-independent, Server never references Client, the shared HTTP contract references Protocol only, and the HTTP client/server adapters never reference one another.
+The arrows are intentional trust and dependency boundaries. In particular, Protocol is framework-independent, Server never references Client, the shared HTTP contract references Protocol only, and the HTTP client/server adapters never reference one another. Media prepares plaintext only on the client before existing attachment encryption; the optional FFmpeg adapter depends on Media, not Server or storage. UI.Core references Client only; the optional Blazor package adds the UI framework without pulling Server or Persistence into the client.
 
 ## Build and infrastructure-free tests
 
@@ -51,10 +59,11 @@ $env:SKOPKA_CHAT_POSTGRES = 'Host=localhost;Port=5432;Database=skopka_chat_tests
 $env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
+dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
 ```
 
-The persistence gate covers migrations, encrypted storage, concurrent identical/conflicting submission, at-least-once polling, first-ack semantics, deterministic ordering, and TTL cleanup. The HTTP gate covers the authenticated client/server/E2EE path with both in-memory and migrated PostgreSQL storage.
+The persistence gate covers migrations, encrypted storage, concurrent identical/conflicting submission, at-least-once polling, first-ack semantics, deterministic ordering, and TTL cleanup. The attachment gate covers its isolated migration, ciphertext-only model, bytea integrity and immutable retry/conflict behavior. The HTTP gate covers the authenticated client/server/E2EE envelope path with both in-memory and migrated PostgreSQL storage.
 
 ## Choosing tests while iterating
 
@@ -62,6 +71,9 @@ The persistence gate covers migrations, encrypted storage, concurrent identical/
 | --- | --- | --- |
 | Protocol/canonical encoding | `Skopka.Chat.Protocol.Tests` | Client + in-memory integration |
 | Client cryptography/receive | `Skopka.Chat.Client.Tests` | Protocol + in-memory integration |
+| Attachment crypto/storage | `Skopka.Chat.Client.Tests` + `Skopka.Chat.Attachments.Tests` | Both HTTP projects + required attachment PostgreSQL gate |
+| Media preparation | `Skopka.Chat.Media.Tests` | Client + Client.Http + infrastructure-free solution suite |
+| UI state/components | `Skopka.Chat.UI.Core.Tests` + `Skopka.Chat.UI.Blazor.Tests` | Infrastructure-free solution suite + package consumer |
 | Server engine | `Skopka.Chat.Server.Tests` | In-memory integration |
 | HTTP client/contract | `Skopka.Chat.Client.Http.Tests` | ASP.NET Core tests + HTTP integration |
 | ASP.NET Core boundary | `Skopka.Chat.Server.AspNetCore.Tests` | Client HTTP tests + HTTP integration |
@@ -70,9 +82,19 @@ The persistence gate covers migrations, encrypted storage, concurrent identical/
 
 All HTTP changes should include negative cases. The deterministic hostile-input corpus currently covers malformed/truncated JSON, media types, duplicate and unknown properties, case mismatches, missing/null values, Base64, identifiers, excessive nesting, trailing content, and every cryptographic envelope byte field.
 
+The Media test project normally uses a fake process runner so CI does not silently depend on one native build. To certify a host-installed FFmpeg and adjacent `ffprobe`, run its synthetic photo/video conformance test explicitly:
+
+```powershell
+$env:SKOPKA_CHAT_FFMPEG = (Get-Command ffmpeg).Source
+$env:SKOPKA_CHAT_FFMPEG_REQUIRED = 'true'
+dotnet test --project tests/Skopka.Chat.Media.Tests --configuration Release --no-restore
+```
+
+The test checks real JPEG/H.264/AAC output, dimensions, pixel formats, metadata removal, MP4 fast-start ordering and plaintext work-directory cleanup. It generates synthetic inputs and does not read user media.
+
 ## Coverage-guided JSON fuzzing
 
-The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of eight targets: seven shared HTTP contracts or the authenticated content-v1 decoder. Successful HTTP values and typed content are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; other exceptions fail the run.
+The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of eight targets: seven shared HTTP contracts or the authenticated versioned-content decoder (v1 text/reaction and v2 attachments). Successful HTTP values and typed content are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; other exceptions fail the run.
 
 Replay committed seeds and minimized regressions on any platform:
 
@@ -102,7 +124,7 @@ For schema changes, generate a new EF migration. Existing migrations are append-
 
 ## Packaging and release verification
 
-The solution produces seven NuGet packages and seven symbol packages in `artifacts/packages`:
+The solution produces fourteen NuGet packages and fourteen symbol packages in `artifacts/packages`:
 
 ```powershell
 dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
@@ -115,7 +137,7 @@ $packageVersion = dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.c
 tar -xOf "artifacts/packages/Skopka.Chat.Transport.Http.$packageVersion.nupkg" Skopka.Chat.Transport.Http.nuspec
 ```
 
-Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` project is restored from the local package directory after packing and proves that all seven public assemblies can be consumed without project references. See [`releasing.md`](releasing.md) for the protected tag workflow.
+Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` project is restored from the local package directory after packing and proves that all fourteen public assemblies can be consumed without project references. See [`releasing.md`](releasing.md) for the protected tag workflow.
 
 ## Security review prompts
 

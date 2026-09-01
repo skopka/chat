@@ -1,4 +1,6 @@
 using System.Text;
+using System.Buffers.Binary;
+using Skopka.Chat.Attachments;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client;
@@ -12,12 +14,13 @@ public sealed class ChatContentFormatException : FormatException
     }
 }
 
-/// <summary>Deterministically encodes and strictly parses encrypted application content version 1.</summary>
+/// <summary>Deterministically encodes and strictly parses versioned encrypted application content.</summary>
 public static class ChatContentEncoding
 {
     private static readonly byte[] Domain = Encoding.ASCII.GetBytes("skopka.chat.content");
     private const byte TextKind = (byte)'T';
     private const byte ReactionKind = (byte)'R';
+    private const byte AttachmentKind = (byte)'A';
     private const byte AddReaction = (byte)'+';
     private const byte RemoveReaction = (byte)'-';
 
@@ -27,19 +30,26 @@ public static class ChatContentEncoding
         ArgumentNullException.ThrowIfNull(content);
         using var output = new MemoryStream(128);
         output.Write(Domain);
-        output.WriteByte((byte)('0' + ChatContentVersions.Current));
 
         switch (content)
         {
             case ChatTextContent text:
+                output.WriteByte((byte)('0' + ChatContentVersions.V1));
                 output.WriteByte(TextKind);
                 WriteGuid(output, text.ContentId.Value);
                 WriteText(output, text);
                 break;
             case ChatReactionContent reaction:
+                output.WriteByte((byte)('0' + ChatContentVersions.V1));
                 output.WriteByte(ReactionKind);
                 WriteGuid(output, reaction.ContentId.Value);
                 WriteReaction(output, reaction);
+                break;
+            case ChatAttachmentContent attachment:
+                output.WriteByte((byte)('0' + ChatContentVersions.V2));
+                output.WriteByte(AttachmentKind);
+                WriteGuid(output, attachment.ContentId.Value);
+                WriteAttachment(output, attachment);
                 break;
             default:
                 throw new ArgumentException("Unsupported chat content type.", nameof(content));
@@ -79,18 +89,19 @@ public static class ChatContentEncoding
     private static ChatContent DecodeCore(ReadOnlySpan<byte> encoded)
     {
         var remaining = encoded;
-        if (!Read(ref remaining, Domain.Length).SequenceEqual(Domain) ||
-            ReadByte(ref remaining) != (byte)('0' + ChatContentVersions.V1))
+        if (!Read(ref remaining, Domain.Length).SequenceEqual(Domain))
         {
             throw new ChatContentFormatException();
         }
 
+        var version = ReadByte(ref remaining);
         var kind = ReadByte(ref remaining);
         var contentId = ReadContentId(ref remaining);
-        return kind switch
+        return (version, kind) switch
         {
-            TextKind => ReadText(contentId, remaining),
-            ReactionKind => ReadReaction(contentId, remaining),
+            ((byte)('0' + ChatContentVersions.V1), TextKind) => ReadText(contentId, remaining),
+            ((byte)('0' + ChatContentVersions.V1), ReactionKind) => ReadReaction(contentId, remaining),
+            ((byte)('0' + ChatContentVersions.V2), AttachmentKind) => ReadAttachment(contentId, remaining),
             _ => throw new ChatContentFormatException(),
         };
     }
@@ -133,6 +144,50 @@ public static class ChatContentEncoding
         return new ChatReactionContent(contentId, targetContentId, reaction, operation);
     }
 
+    private static ChatAttachmentContent ReadAttachment(ChatContentId contentId, ReadOnlySpan<byte> remaining)
+    {
+        var attachmentId = new AttachmentId(new Guid(Read(ref remaining, 16), bigEndian: true));
+        var flags = ReadByte(ref remaining);
+        if ((flags & ~3) != 0)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        ChatContentId? replyTo = (flags & 1) != 0 ? ReadContentId(ref remaining) : null;
+        var plaintextLength = ReadInt64(ref remaining);
+        var ciphertextLength = ReadInt64(ref remaining);
+        var chunkPlaintextBytes = ReadInt32(ref remaining);
+        var ciphertextSha256 = Read(ref remaining, AttachmentStorageLimits.Sha256Bytes);
+        var fileKey = Read(ref remaining, 32);
+        var noncePrefix = Read(ref remaining, 16);
+        var fileName = ReadLengthPrefixedUtf8(ref remaining, ChatContentLimits.MaxFileNameUtf8Bytes);
+        var mediaType = ReadLengthPrefixedAscii(ref remaining, ChatContentLimits.MaxMediaTypeAsciiBytes);
+        string? caption = null;
+        if ((flags & 2) != 0)
+        {
+            caption = ReadLengthPrefixedUtf8(ref remaining, ChatContentLimits.MaxAttachmentCaptionUtf8Bytes);
+        }
+
+        if (!remaining.IsEmpty)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        return new ChatAttachmentContent(
+            contentId,
+            attachmentId,
+            fileName,
+            mediaType,
+            plaintextLength,
+            ciphertextLength,
+            chunkPlaintextBytes,
+            ciphertextSha256,
+            fileKey,
+            noncePrefix,
+            caption,
+            replyTo);
+    }
+
     private static void WriteText(Stream output, ChatTextContent content)
     {
         var flags = (content.ReplyToContentId.HasValue ? 1 : 0) | (content.IsForwarded ? 2 : 0);
@@ -150,6 +205,30 @@ public static class ChatContentEncoding
         WriteGuid(output, content.TargetContentId.Value);
         output.WriteByte(content.Operation == ChatReactionOperation.Add ? AddReaction : RemoveReaction);
         WriteUtf8(output, content.Reaction);
+    }
+
+    private static void WriteAttachment(Stream output, ChatAttachmentContent content)
+    {
+        WriteGuid(output, content.AttachmentId.Value);
+        var flags = (content.ReplyToContentId.HasValue ? 1 : 0) | (content.Caption is not null ? 2 : 0);
+        output.WriteByte((byte)flags);
+        if (content.ReplyToContentId is { } replyTo)
+        {
+            WriteGuid(output, replyTo.Value);
+        }
+
+        WriteInt64(output, content.PlaintextLength);
+        WriteInt64(output, content.CiphertextLength);
+        WriteInt32(output, content.ChunkPlaintextBytes);
+        output.Write(content.CiphertextSha256.Span);
+        output.Write(content.FileKey.Span);
+        output.Write(content.NoncePrefix.Span);
+        WriteLengthPrefixedUtf8(output, content.FileName);
+        WriteLengthPrefixedAscii(output, content.MediaType);
+        if (content.Caption is { } caption)
+        {
+            WriteLengthPrefixedUtf8(output, caption);
+        }
     }
 
     private static void WriteUtf8(Stream output, string value)
@@ -171,8 +250,77 @@ public static class ChatContentEncoding
         output.Write(bytes);
     }
 
+    private static void WriteInt64(Stream output, long value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(long)];
+        BinaryPrimitives.WriteInt64BigEndian(bytes, value);
+        output.Write(bytes);
+    }
+
+    private static void WriteInt32(Stream output, int value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32BigEndian(bytes, value);
+        output.Write(bytes);
+    }
+
+    private static void WriteLengthPrefixedUtf8(Stream output, string value)
+    {
+        var bytes = ChatContentValidation.StrictUtf8.GetBytes(value);
+        WriteUInt16(output, checked((ushort)bytes.Length));
+        output.Write(bytes);
+    }
+
+    private static void WriteLengthPrefixedAscii(Stream output, string value)
+    {
+        var bytes = Encoding.ASCII.GetBytes(value);
+        WriteUInt16(output, checked((ushort)bytes.Length));
+        output.Write(bytes);
+    }
+
+    private static void WriteUInt16(Stream output, ushort value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(ushort)];
+        BinaryPrimitives.WriteUInt16BigEndian(bytes, value);
+        output.Write(bytes);
+    }
+
     private static ChatContentId ReadContentId(ref ReadOnlySpan<byte> remaining) =>
         new(new Guid(Read(ref remaining, 16), bigEndian: true));
+
+    private static long ReadInt64(ref ReadOnlySpan<byte> remaining) =>
+        BinaryPrimitives.ReadInt64BigEndian(Read(ref remaining, sizeof(long)));
+
+    private static int ReadInt32(ref ReadOnlySpan<byte> remaining) =>
+        BinaryPrimitives.ReadInt32BigEndian(Read(ref remaining, sizeof(int)));
+
+    private static string ReadLengthPrefixedUtf8(ref ReadOnlySpan<byte> remaining, int maximumBytes)
+    {
+        var length = BinaryPrimitives.ReadUInt16BigEndian(Read(ref remaining, sizeof(ushort)));
+        if (length > maximumBytes)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        return ChatContentValidation.StrictUtf8.GetString(Read(ref remaining, length));
+    }
+
+    private static string ReadLengthPrefixedAscii(ref ReadOnlySpan<byte> remaining, int maximumBytes)
+    {
+        var length = BinaryPrimitives.ReadUInt16BigEndian(Read(ref remaining, sizeof(ushort)));
+        if (length > maximumBytes)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        var value = Read(ref remaining, length);
+        if (value.ContainsAnyExceptInRange((byte)0x21, (byte)0x7e))
+        {
+            throw new ChatContentFormatException();
+        }
+
+        return Encoding.ASCII.GetString(value);
+    }
 
     private static byte ReadByte(ref ReadOnlySpan<byte> remaining) => Read(ref remaining, 1)[0];
 

@@ -1,0 +1,273 @@
+.skopka-chat {
+    --skopka-chat-background: #f4f6f8;
+    --skopka-chat-surface: #ffffff;
+    --skopka-chat-own-surface: #d9fdd3;
+    --skopka-chat-text: #17212b;
+    --skopka-chat-muted: #64748b;
+    --skopka-chat-accent: #2563eb;
+    --skopka-chat-border: #dbe2ea;
+    --skopka-chat-danger: #b42318;
+    --skopka-chat-radius: 0.9rem;
+    --skopka-chat-font: system-ui, sans-serif;
+    --skopka-chat-max-width: 52rem;
+    display: grid;
+    grid-template-rows: minmax(12rem, 1fr) auto;
+    width: min(100%, var(--skopka-chat-max-width));
+    min-height: 24rem;
+    overflow: hidden;
+    color: var(--skopka-chat-text);
+    background: var(--skopka-chat-background);
+    border: 1px solid var(--skopka-chat-border);
+    border-radius: var(--skopka-chat-radius);
+    font-family: var(--skopka-chat-font);
+}
+
+.skopka-chat__timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+.skopka-chat__empty {
+    margin: auto;
+    color: var(--skopka-chat-muted);
+}
+
+::deep .skopka-chat-message {
+    align-self: flex-start;
+    width: min(82%, 38rem);
+    padding: 0.75rem;
+    background: var(--skopka-chat-surface);
+    border: 1px solid var(--skopka-chat-border);
+    border-radius: var(--skopka-chat-radius);
+}
+
+::deep .skopka-chat-message--own {
+    align-self: flex-end;
+    background: var(--skopka-chat-own-surface);
+}
+
+::deep .skopka-chat-message__header,
+::deep .skopka-chat-message__actions,
+::deep .skopka-chat-message__reactions,
+::deep .skopka-chat-message__quick-reactions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+::deep .skopka-chat-message__header {
+    justify-content: space-between;
+    color: var(--skopka-chat-muted);
+    font-size: 0.75rem;
+}
+
+::deep .skopka-chat-message__sender {
+    font-weight: 650;
+}
+
+::deep .skopka-chat-message__forwarded,
+::deep .skopka-chat-message__reply-label {
+    color: var(--skopka-chat-muted);
+    font-size: 0.75rem;
+}
+
+::deep .skopka-chat-message__reply {
+    display: grid;
+    gap: 0.15rem;
+    margin-top: 0.5rem;
+    padding-left: 0.55rem;
+    overflow: hidden;
+    border-left: 0.2rem solid var(--skopka-chat-accent);
+}
+
+::deep .skopka-chat-message__reply-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+::deep .skopka-chat-message__text {
+    margin: 0.5rem 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+::deep .skopka-chat-attachment__file {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-top: 0.65rem;
+    padding: 0.65rem;
+    background: color-mix(in srgb, var(--skopka-chat-surface), transparent 28%);
+    border: 1px solid var(--skopka-chat-border);
+    border-radius: 0.7rem;
+}
+
+::deep .skopka-chat-attachment__icon {
+    font-size: 1.4rem;
+}
+
+::deep .skopka-chat-attachment__metadata {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+}
+
+::deep .skopka-chat-attachment__metadata strong,
+::deep .skopka-chat-attachment__metadata span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+::deep .skopka-chat-attachment__metadata span {
+    color: var(--skopka-chat-muted);
+    font-size: 0.75rem;
+}
+
+::deep .skopka-chat-message__reaction,
+::deep .skopka-chat-message__action,
+::deep .skopka-chat-composer__cancel {
+    padding: 0.2rem 0.45rem;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--skopka-chat-border);
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+::deep .skopka-chat-message__reaction--active {
+    color: var(--skopka-chat-accent);
+    border-color: currentColor;
+}
+
+::deep .skopka-chat-message__reaction-count {
+    margin-left: 0.2rem;
+}
+
+::deep .skopka-chat-message__actions {
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+}
+
+::deep .skopka-chat-composer {
+    padding: 0.75rem;
+    background: var(--skopka-chat-surface);
+    border-top: 1px solid var(--skopka-chat-border);
+}
+
+::deep .skopka-chat-composer__reply {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    padding-left: 0.55rem;
+    border-left: 0.2rem solid var(--skopka-chat-accent);
+}
+
+::deep .skopka-chat-composer__reply > div {
+    display: grid;
+    min-width: 0;
+}
+
+::deep .skopka-chat-composer__reply span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+::deep .skopka-chat-composer__row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.65rem;
+}
+
+::deep .skopka-chat-composer__attachments {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.6rem;
+    color: var(--skopka-chat-muted);
+    font-size: 0.82rem;
+}
+
+::deep .skopka-chat-composer__file-picker,
+::deep .skopka-chat-composer__file-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+::deep .skopka-chat-composer__file-picker input[type="file"] {
+    max-width: 14rem;
+}
+
+::deep .skopka-chat-composer__media-progress {
+    color: var(--skopka-chat-accent);
+}
+
+::deep .skopka-chat-composer__input {
+    flex: 1;
+    min-height: 2.75rem;
+    max-height: 10rem;
+    resize: vertical;
+    padding: 0.65rem;
+    color: inherit;
+    background: var(--skopka-chat-background);
+    border: 1px solid var(--skopka-chat-border);
+    border-radius: 0.7rem;
+    font: inherit;
+}
+
+::deep .skopka-chat-composer__send {
+    min-height: 2.75rem;
+    padding: 0.55rem 1rem;
+    color: #ffffff;
+    background: var(--skopka-chat-accent);
+    border: 0;
+    border-radius: 0.7rem;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+}
+
+::deep button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+::deep button:focus-visible,
+::deep textarea:focus-visible {
+    outline: 0.18rem solid color-mix(in srgb, var(--skopka-chat-accent), transparent 35%);
+    outline-offset: 0.12rem;
+}
+
+::deep .skopka-chat-composer__error {
+    margin: 0 0 0.5rem;
+    color: var(--skopka-chat-danger);
+    font-size: 0.85rem;
+}
+
+@media (max-width: 40rem) {
+    ::deep .skopka-chat-message {
+        width: 92%;
+    }
+
+    ::deep .skopka-chat-composer__row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skopka-chat,
+    ::deep * {
+        scroll-behavior: auto;
+    }
+}

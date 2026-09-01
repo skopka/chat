@@ -1,0 +1,140 @@
+<article class="@MessageClass" data-content-id="@Message.ContentId" aria-label="@ResolvedSenderLabel">
+    <header class="skopka-chat-message__header">
+        <span class="skopka-chat-message__sender">@ResolvedSenderLabel</span>
+        <time datetime="@Message.SentAt.ToString("O", CultureInfo.InvariantCulture)">@ResolvedTime</time>
+    </header>
+
+    @if (Message.IsForwarded)
+    {
+        <div class="skopka-chat-message__forwarded">@Strings.Forwarded</div>
+    }
+
+    @if (Message.ReplyToContentId is { } replyId)
+    {
+        var reply = ViewModel.Messages.FirstOrDefault(item => item.ContentId == replyId);
+        <div class="skopka-chat-message__reply">
+            <span class="skopka-chat-message__reply-label">@Strings.ReplyTo</span>
+            <span class="skopka-chat-message__reply-text">@(reply?.Text ?? Strings.ReplyUnavailable)</span>
+        </div>
+    }
+
+    <p class="skopka-chat-message__text">@Message.Text</p>
+
+    @if (Message.Reactions.Count > 0)
+    {
+        <div class="skopka-chat-message__reactions" aria-label="@Strings.Reactions">
+            @foreach (var reaction in Message.Reactions)
+            {
+                var isActive = reaction.SenderUserIds.Contains(ViewModel.CurrentUserId);
+                <button type="button"
+                        class="@(isActive ? "skopka-chat-message__reaction skopka-chat-message__reaction--active" : "skopka-chat-message__reaction")"
+                        aria-pressed="@isActive"
+                        disabled="@_commandPending"
+                        @onclick="() => ToggleReactionAsync(reaction.Reaction)">
+                    <span>@reaction.Reaction</span>
+                    <span class="skopka-chat-message__reaction-count">@reaction.Count</span>
+                </button>
+            }
+        </div>
+    }
+
+    @if (ShowActions)
+    {
+        <footer class="skopka-chat-message__actions">
+            <div class="skopka-chat-message__quick-reactions" aria-label="@Strings.Reactions">
+                @foreach (var reaction in ReactionChoices)
+                {
+                    <button type="button"
+                            class="skopka-chat-message__action"
+                            aria-label="@($"{Strings.Reactions}: {reaction}")"
+                            disabled="@_commandPending"
+                            @onclick="() => ToggleReactionAsync(reaction)">@reaction</button>
+                }
+            </div>
+            <button type="button" class="skopka-chat-message__action" @onclick="BeginReply">@Strings.Reply</button>
+            @if (ForwardRequested.HasDelegate)
+            {
+                <button type="button" class="skopka-chat-message__action" @onclick="ForwardAsync">@Strings.Forward</button>
+            }
+        </footer>
+    }
+</article>
+
+@code {
+    private bool _commandPending;
+
+    /// <summary>Owning presentation model.</summary>
+    [Parameter, EditorRequired]
+    public ChatViewModel ViewModel { get; set; } = null!;
+
+    /// <summary>Projected message to render.</summary>
+    [Parameter, EditorRequired]
+    public ProjectedChatMessage Message { get; set; } = null!;
+
+    /// <summary>Localized strings.</summary>
+    [Parameter]
+    public SkopkaChatStrings Strings { get; set; } = SkopkaChatStrings.Default;
+
+    /// <summary>Quick-reaction choices.</summary>
+    [Parameter]
+    public IReadOnlyList<string> ReactionChoices { get; set; } = SkopkaChatDefaults.Reactions;
+
+    /// <summary>Whether the default action row is visible.</summary>
+    [Parameter]
+    public bool ShowActions { get; set; } = true;
+
+    /// <summary>Host callback for selecting a forward target.</summary>
+    [Parameter]
+    public EventCallback<ProjectedChatMessage> ForwardRequested { get; set; }
+
+    /// <summary>Generic expected-failure callback.</summary>
+    [Parameter]
+    public EventCallback<SkopkaChatCommand> CommandFailed { get; set; }
+
+    /// <summary>Optional sender-label formatter.</summary>
+    [Parameter]
+    public Func<ProjectedChatMessage, string>? SenderLabel { get; set; }
+
+    /// <summary>Optional timestamp formatter.</summary>
+    [Parameter]
+    public Func<DateTimeOffset, string>? TimeFormatter { get; set; }
+
+    private bool IsOwnMessage => Message.SenderUserId == ViewModel.CurrentUserId;
+
+    private string MessageClass => IsOwnMessage
+        ? "skopka-chat-message skopka-chat-message--own"
+        : "skopka-chat-message skopka-chat-message--peer";
+
+    private string ResolvedSenderLabel => SenderLabel?.Invoke(Message) ?? (IsOwnMessage ? Strings.You : Strings.Contact);
+
+    private string ResolvedTime => TimeFormatter?.Invoke(Message.SentAt) ?? Message.SentAt.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        ArgumentNullException.ThrowIfNull(ViewModel);
+        ArgumentNullException.ThrowIfNull(Message);
+        ArgumentNullException.ThrowIfNull(Strings);
+        ArgumentNullException.ThrowIfNull(ReactionChoices);
+    }
+
+    private void BeginReply() => ViewModel.BeginReply(Message.ContentId);
+
+    private Task ForwardAsync() => ForwardRequested.InvokeAsync(Message);
+
+    private async Task ToggleReactionAsync(string reaction)
+    {
+        _commandPending = true;
+        try
+        {
+            if (!await ViewModel.ToggleReactionAsync(Message.ContentId, reaction))
+            {
+                await CommandFailed.InvokeAsync(SkopkaChatCommand.ToggleReaction);
+            }
+        }
+        finally
+        {
+            _commandPending = false;
+        }
+    }
+}

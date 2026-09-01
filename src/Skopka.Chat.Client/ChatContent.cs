@@ -1,4 +1,5 @@
 using System.Text;
+using Skopka.Chat.Attachments;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client;
@@ -9,8 +10,11 @@ public static class ChatContentVersions
     /// <summary>Text, reply, forward and reaction content.</summary>
     public const byte V1 = 1;
 
-    /// <summary>The content version emitted by this package.</summary>
-    public const byte Current = V1;
+    /// <summary>Encrypted attachment manifests.</summary>
+    public const byte V2 = 2;
+
+    /// <summary>The latest content version understood by this package.</summary>
+    public const byte Current = V2;
 }
 
 /// <summary>Bounds fields before typed content is encrypted or projected.</summary>
@@ -23,6 +27,15 @@ public static class ChatContentLimits
 
     /// <summary>Maximum UTF-8 size of one reaction rendering token.</summary>
     public const int MaxReactionUtf8Bytes = 64;
+
+    /// <summary>Maximum UTF-8 size of a display file name.</summary>
+    public const int MaxFileNameUtf8Bytes = 512;
+
+    /// <summary>Maximum ASCII size of an Internet media type.</summary>
+    public const int MaxMediaTypeAsciiBytes = 127;
+
+    /// <summary>Maximum UTF-8 size of an attachment caption.</summary>
+    public const int MaxAttachmentCaptionUtf8Bytes = 4 * 1024;
 }
 
 /// <summary>Identifies one logical encrypted content event across per-device envelopes.</summary>
@@ -43,6 +56,9 @@ public enum ChatContentKind : byte
 
     /// <summary>An add or remove reaction event.</summary>
     Reaction = 2,
+
+    /// <summary>An encrypted manifest for a separately stored ciphertext blob.</summary>
+    Attachment = 3,
 }
 
 /// <summary>Action applied by a reaction event.</summary>
@@ -169,6 +185,158 @@ public sealed class ChatReactionContent : ChatContent
     /// <inheritdoc />
     public override string ToString() =>
         $"ChatReactionContent(ContentId={ContentId}, Target={TargetContentId}, Operation={Operation}, Reaction=[REDACTED])";
+}
+
+/// <summary>
+/// Encrypted attachment manifest. Every property on this type is plaintext only on participant devices.
+/// </summary>
+public sealed class ChatAttachmentContent : ChatContent
+{
+    private const int FileKeyBytes = 32;
+    private const int NoncePrefixBytes = 16;
+    private readonly byte[] _ciphertextSha256;
+    private readonly byte[] _fileKey;
+    private readonly byte[] _noncePrefix;
+
+    /// <summary>Creates a validated content-v2 attachment manifest.</summary>
+    public ChatAttachmentContent(
+        ChatContentId contentId,
+        AttachmentId attachmentId,
+        string fileName,
+        string mediaType,
+        long plaintextLength,
+        long ciphertextLength,
+        int chunkPlaintextBytes,
+        ReadOnlySpan<byte> ciphertextSha256,
+        ReadOnlySpan<byte> fileKey,
+        ReadOnlySpan<byte> noncePrefix,
+        string? caption = null,
+        ChatContentId? replyToContentId = null)
+        : base(contentId, ChatContentKind.Attachment)
+    {
+        if (attachmentId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Attachment ID must not be empty.", nameof(attachmentId));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ChatContentValidation.RequireUtf8Length(fileName, ChatContentLimits.MaxFileNameUtf8Bytes, nameof(fileName));
+        if (fileName is "." or ".." ||
+            fileName.Any(static character => char.IsControl(character) || character is '/' or '\\'))
+        {
+            throw new ArgumentException("File name must not contain paths or control characters.", nameof(fileName));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(mediaType);
+        if (mediaType.Length > ChatContentLimits.MaxMediaTypeAsciiBytes ||
+            mediaType.Any(static character => character is < (char)0x21 or > (char)0x7e))
+        {
+            throw new ArgumentException("Media type must be bounded printable ASCII.", nameof(mediaType));
+        }
+
+        if (plaintextLength < 0 || plaintextLength > AttachmentStorageLimits.MaxCiphertextBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(plaintextLength), "Plaintext length is outside the supported range.");
+        }
+
+        if (ciphertextLength <= 0 || ciphertextLength > AttachmentStorageLimits.MaxCiphertextBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ciphertextLength), "Ciphertext length is outside the supported range.");
+        }
+
+        if (chunkPlaintextBytes < ChatAttachmentCryptoService.MinChunkPlaintextBytes ||
+            chunkPlaintextBytes > ChatAttachmentCryptoService.MaxChunkPlaintextBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(chunkPlaintextBytes), "Chunk size is outside the supported range.");
+        }
+
+        if (!ChatAttachmentCryptoService.TryGetCiphertextLength(
+                plaintextLength,
+                chunkPlaintextBytes,
+                out var expectedCiphertextLength) ||
+            ciphertextLength != expectedCiphertextLength)
+        {
+            throw new ArgumentException("Ciphertext length does not match the canonical chunk framing.", nameof(ciphertextLength));
+        }
+
+        if (ciphertextSha256.Length != AttachmentStorageLimits.Sha256Bytes)
+        {
+            throw new ArgumentException("Ciphertext hash has an invalid size.", nameof(ciphertextSha256));
+        }
+
+        if (fileKey.Length != FileKeyBytes)
+        {
+            throw new ArgumentException("Attachment key has an invalid size.", nameof(fileKey));
+        }
+
+        if (noncePrefix.Length != NoncePrefixBytes)
+        {
+            throw new ArgumentException("Attachment nonce prefix has an invalid size.", nameof(noncePrefix));
+        }
+
+        if (caption is not null)
+        {
+            ChatContentValidation.RequireUtf8Length(caption, ChatContentLimits.MaxAttachmentCaptionUtf8Bytes, nameof(caption));
+        }
+
+        if (replyToContentId is { } replyId)
+        {
+            ChatContentValidation.RequireId(replyId, nameof(replyToContentId));
+            if (replyId == contentId)
+            {
+                throw new ArgumentException("Content cannot reply to itself.", nameof(replyToContentId));
+            }
+        }
+
+        AttachmentId = attachmentId;
+        FileName = fileName;
+        MediaType = mediaType;
+        PlaintextLength = plaintextLength;
+        CiphertextLength = ciphertextLength;
+        ChunkPlaintextBytes = chunkPlaintextBytes;
+        _ciphertextSha256 = ciphertextSha256.ToArray();
+        _fileKey = fileKey.ToArray();
+        _noncePrefix = noncePrefix.ToArray();
+        Caption = caption;
+        ReplyToContentId = replyToContentId;
+    }
+
+    /// <summary>Opaque identifier used to retrieve ciphertext.</summary>
+    public AttachmentId AttachmentId { get; }
+
+    /// <summary>Decrypted display name without a path.</summary>
+    public string FileName { get; }
+
+    /// <summary>Decrypted sender-declared media type; hosts must still treat bytes as untrusted.</summary>
+    public string MediaType { get; }
+
+    /// <summary>Expected decrypted length.</summary>
+    public long PlaintextLength { get; }
+
+    /// <summary>Exact separately stored ciphertext length.</summary>
+    public long CiphertextLength { get; }
+
+    /// <summary>Plaintext bytes authenticated per encrypted chunk.</summary>
+    public int ChunkPlaintextBytes { get; }
+
+    /// <summary>SHA-256 over the exact separately stored ciphertext.</summary>
+    public ReadOnlyMemory<byte> CiphertextSha256 => _ciphertextSha256;
+
+    /// <summary>Symmetric attachment key. Hosts must keep it in protected local state.</summary>
+    public ReadOnlyMemory<byte> FileKey => _fileKey;
+
+    /// <summary>Random nonce prefix combined with a monotonically increasing chunk index.</summary>
+    public ReadOnlyMemory<byte> NoncePrefix => _noncePrefix;
+
+    /// <summary>Optional decrypted caption.</summary>
+    public string? Caption { get; }
+
+    /// <summary>Optional referenced logical content.</summary>
+    public ChatContentId? ReplyToContentId { get; }
+
+    /// <inheritdoc />
+    public override string ToString() =>
+        $"ChatAttachmentContent(ContentId={ContentId}, AttachmentId={AttachmentId}, PlaintextLength={PlaintextLength}, Manifest=[REDACTED])";
 }
 
 internal static class ChatContentValidation

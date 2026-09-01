@@ -1,16 +1,19 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.Options;
+using Skopka.Chat.Attachments;
+using Skopka.Chat.Media;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Transport.Http;
 
 namespace Skopka.Chat.Client.Http;
 
 /// <summary>Authenticated HTTP API client and <see cref="IChatTransport"/> implementation.</summary>
-public sealed class SkopkaChatHttpClient : IChatTransport
+public sealed class SkopkaChatHttpClient : IChatTransport, IEncryptedAttachmentUploader
 {
     private readonly HttpClient _httpClient;
     private readonly IAccessTokenProvider _accessTokens;
@@ -248,6 +251,162 @@ public sealed class SkopkaChatHttpClient : IChatTransport
                 BuildUri(SkopkaChatHttpRoutes.Acknowledgement(messageId.Value))),
             cancellationToken).ConfigureAwait(false);
         EnsureSuccess(response);
+    }
+
+    /// <summary>Uploads an already encrypted attachment blob without sending plaintext metadata.</summary>
+    public async ValueTask<AttachmentStoreResult> UploadAttachmentAsync(
+        ConversationId conversationId,
+        ChatAttachmentContent manifest,
+        Stream ciphertext,
+        DateTimeOffset? expiresAt = null,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(conversationId.Value, nameof(conversationId));
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(ciphertext);
+        if (!ciphertext.CanRead)
+        {
+            throw new ArgumentException("Ciphertext stream must be readable.", nameof(ciphertext));
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Put,
+            BuildUri(SkopkaChatHttpRoutes.Attachment(manifest.AttachmentId.Value)));
+        request.Content = new StreamContent(new NonDisposingReadStream(ciphertext));
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        request.Content.Headers.ContentLength = manifest.CiphertextLength;
+        request.Headers.Add(SkopkaChatAttachmentHeaders.ConversationId, conversationId.ToString());
+        request.Headers.Add(
+            SkopkaChatAttachmentHeaders.CiphertextSha256,
+            Convert.ToHexString(manifest.CiphertextSha256.Span));
+        if (expiresAt is { } expiry)
+        {
+            request.Headers.Add(
+                SkopkaChatAttachmentHeaders.ExpiresAt,
+                expiry.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        using var response = await SendOnceAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.Conflict)
+        {
+            return AttachmentStoreResult.Conflict;
+        }
+
+        EnsureSuccess(response);
+        return response.StatusCode switch
+        {
+            HttpStatusCode.Created => AttachmentStoreResult.Stored,
+            HttpStatusCode.OK => AttachmentStoreResult.Duplicate,
+            _ => throw InvalidResponse(),
+        };
+    }
+
+    ValueTask<AttachmentStoreResult> IEncryptedAttachmentUploader.UploadAsync(
+        ConversationId conversationId,
+        ChatAttachmentContent manifest,
+        Stream ciphertext,
+        DateTimeOffset? expiresAt,
+        CancellationToken cancellationToken) =>
+        UploadAttachmentAsync(conversationId, manifest, ciphertext, expiresAt, cancellationToken);
+
+    /// <summary>
+    /// Downloads ciphertext and streams authenticated plaintext to a caller-owned destination.
+    /// The caller must discard the destination if this method fails.
+    /// </summary>
+    public async ValueTask DownloadAndDecryptAttachmentAsync(
+        ConversationId conversationId,
+        ChatAttachmentContent manifest,
+        Stream plaintextDestination,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(conversationId.Value, nameof(conversationId));
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(plaintextDestination);
+        if (!plaintextDestination.CanWrite)
+        {
+            throw new ArgumentException("Plaintext destination must be writable.", nameof(plaintextDestination));
+        }
+
+        using var response = await SendWithRetryAsync(
+            () => new HttpRequestMessage(
+                HttpMethod.Get,
+                BuildUri(SkopkaChatHttpRoutes.Attachment(manifest.AttachmentId.Value))),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        if (response.Content.Headers.ContentLength != manifest.CiphertextLength ||
+            !string.Equals(
+                response.Content.Headers.ContentType?.MediaType,
+                "application/octet-stream",
+                StringComparison.OrdinalIgnoreCase) ||
+            !TryGetSingleResponseHeader(response, SkopkaChatAttachmentHeaders.ConversationId, out var conversationValue) ||
+            !Guid.TryParseExact(conversationValue, "D", out var returnedConversationId) ||
+            returnedConversationId != conversationId.Value ||
+            !TryGetSingleResponseHeader(response, SkopkaChatAttachmentHeaders.CiphertextSha256, out var hashValue) ||
+            !TryParseHash(hashValue, out var returnedHash) ||
+            !CryptographicOperations.FixedTimeEquals(returnedHash, manifest.CiphertextSha256.Span))
+        {
+            throw InvalidResponse();
+        }
+
+        await using var ciphertext = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await ChatAttachmentCryptoService.DecryptAsync(
+            manifest,
+            ciphertext,
+            plaintextDestination,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Deletes an encrypted attachment blob when allowed by the host policy.</summary>
+    public async ValueTask<bool> DeleteAttachmentAsync(
+        AttachmentId attachmentId,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(attachmentId.Value, nameof(attachmentId));
+        using var response = await SendWithRetryAsync(
+            () => new HttpRequestMessage(
+                HttpMethod.Delete,
+                BuildUri(SkopkaChatHttpRoutes.Attachment(attachmentId.Value))),
+            cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        EnsureSuccess(response);
+        return response.StatusCode == HttpStatusCode.NoContent ? true : throw InvalidResponse();
+    }
+
+    private async Task<HttpResponseMessage> SendOnceAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        var token = await GetTokenAsync(cancellationToken).ConfigureAwait(false);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
+        try
+        {
+            var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                EnsureSameOrigin(response);
+                return response;
+            }
+            catch
+            {
+                response.Dispose();
+                throw;
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new ChatHttpTransportException("The chat HTTP request failed.", innerException: exception);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ChatHttpTransportException("The chat HTTP request timed out.", innerException: exception);
+        }
     }
 
     private async Task<HttpResponseMessage> SendWithRetryAsync(
@@ -533,4 +692,62 @@ public sealed class SkopkaChatHttpClient : IChatTransport
 
     private static ChatHttpTransportException InvalidResponse() =>
         new("The chat HTTP response was invalid.");
+
+    private static bool TryGetSingleResponseHeader(
+        HttpResponseMessage response,
+        string name,
+        out string value)
+    {
+        value = string.Empty;
+        if (!response.Headers.TryGetValues(name, out var values))
+        {
+            return false;
+        }
+
+        var items = values.Take(2).ToArray();
+        if (items.Length != 1 || items[0].Length == 0)
+        {
+            return false;
+        }
+
+        value = items[0];
+        return true;
+    }
+
+    private static bool TryParseHash(string value, out byte[] hash)
+    {
+        hash = [];
+        if (value.Length != AttachmentStorageLimits.Sha256Bytes * 2)
+        {
+            return false;
+        }
+
+        try
+        {
+            hash = Convert.FromHexString(value);
+            return hash.Length == AttachmentStorageLimits.Sha256Bytes;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private sealed class NonDisposingReadStream(Stream inner) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override int Read(Span<byte> buffer) => inner.Read(buffer);
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) => inner.ReadAsync(buffer, cancellationToken);
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

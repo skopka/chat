@@ -114,6 +114,10 @@ jobs:
           SKOPKA_CHAT_POSTGRES: Host=localhost;Port=5432;Database=skopka_chat_release;Username=postgres;Password=skopka-chat-release-only;Pooling=false
           SKOPKA_CHAT_POSTGRES_REQUIRED: true
 
+      - name: Require PostgreSQL attachment integration
+        run: dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
+        env: *postgres-test-environment
+
       - name: Require authenticated HTTP to PostgreSQL E2EE integration
         run: dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
         env: *postgres-test-environment
@@ -149,7 +153,14 @@ jobs:
         run: |
           PACKAGE_IDS=(
             "Skopka.Chat.Protocol"
+            "Skopka.Chat.Attachments"
+            "Skopka.Chat.Attachments.PostgreSql"
+            "Skopka.Chat.Attachments.S3"
             "Skopka.Chat.Client"
+            "Skopka.Chat.Media"
+            "Skopka.Chat.Media.FFmpeg"
+            "Skopka.Chat.UI.Core"
+            "Skopka.Chat.UI.Blazor"
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Server"
@@ -169,8 +180,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 7 || "$SNUPKG_COUNT" -ne 7 ]]; then
-            echo "Expected 7 packages and 7 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 14 || "$SNUPKG_COUNT" -ne 14 ]]; then
+            echo "Expected 14 packages and 14 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
@@ -235,7 +246,14 @@ jobs:
           VERSION_LOWER="${RELEASE_VERSION,,}"
           PACKAGE_IDS=(
             "skopka.chat.protocol"
+            "skopka.chat.attachments"
+            "skopka.chat.attachments.postgresql"
+            "skopka.chat.attachments.s3"
             "skopka.chat.client"
+            "skopka.chat.media"
+            "skopka.chat.media.ffmpeg"
+            "skopka.chat.ui.core"
+            "skopka.chat.ui.blazor"
             "skopka.chat.transport.http"
             "skopka.chat.client.http"
             "skopka.chat.server"
@@ -265,7 +283,14 @@ jobs:
         run: |
           PACKAGE_IDS=(
             "Skopka.Chat.Protocol"
+            "Skopka.Chat.Attachments"
+            "Skopka.Chat.Attachments.PostgreSql"
+            "Skopka.Chat.Attachments.S3"
             "Skopka.Chat.Client"
+            "Skopka.Chat.Media"
+            "Skopka.Chat.Media.FFmpeg"
+            "Skopka.Chat.UI.Core"
+            "Skopka.Chat.UI.Blazor"
             "Skopka.Chat.Server"
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
@@ -289,7 +314,14 @@ jobs:
           VERSION_LOWER="${RELEASE_VERSION,,}"
           PACKAGE_IDS=(
             "skopka.chat.protocol"
+            "skopka.chat.attachments"
+            "skopka.chat.attachments.postgresql"
+            "skopka.chat.attachments.s3"
             "skopka.chat.client"
+            "skopka.chat.media"
+            "skopka.chat.media.ffmpeg"
+            "skopka.chat.ui.core"
+            "skopka.chat.ui.blazor"
             "skopka.chat.transport.http"
             "skopka.chat.client.http"
             "skopka.chat.server"

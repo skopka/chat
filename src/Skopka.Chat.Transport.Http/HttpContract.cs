@@ -20,6 +20,9 @@ public static class SkopkaChatHttpRoutes
     /// <summary>Pending delivery collection for the authenticated device.</summary>
     public const string Deliveries = "/deliveries";
 
+    /// <summary>Encrypted attachment collection.</summary>
+    public const string Attachments = "/attachments";
+
     /// <summary>Returns the public-directory route for one device.</summary>
     public static string Device(Guid deviceId) => $"{Devices}/{deviceId:D}";
 
@@ -29,6 +32,22 @@ public static class SkopkaChatHttpRoutes
     /// <summary>Returns the acknowledgement route for one encrypted message.</summary>
     public static string Acknowledgement(Guid messageId) =>
         $"{Deliveries}/{messageId:D}/acknowledgements";
+
+    /// <summary>Returns the ciphertext route for one attachment.</summary>
+    public static string Attachment(Guid attachmentId) => $"{Attachments}/{attachmentId:D}";
+}
+
+/// <summary>Strict transport headers for opaque attachment metadata.</summary>
+public static class SkopkaChatAttachmentHeaders
+{
+    /// <summary>Conversation ID used by the server authorization policy.</summary>
+    public const string ConversationId = "X-Skopka-Conversation-Id";
+
+    /// <summary>Uppercase hexadecimal SHA-256 over the ciphertext body.</summary>
+    public const string CiphertextSha256 = "X-Skopka-Ciphertext-Sha256";
+
+    /// <summary>Optional UTC expiry in round-trip ISO-8601 form.</summary>
+    public const string ExpiresAt = "X-Skopka-Expires-At";
 }
 
 /// <summary>Transport-level bounds applied in addition to protocol validation.</summary>

@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
+using Skopka.Chat.Attachments;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client;
@@ -41,7 +43,7 @@ public sealed class ProjectedChatReaction
 }
 
 /// <summary>One projected text item with reply, forward and active-reaction state.</summary>
-public sealed class ProjectedChatMessage
+public sealed class ProjectedChatMessage : IProjectedChatItem
 {
     private readonly ReadOnlyCollection<ProjectedChatReaction> _reactions;
 
@@ -90,6 +92,100 @@ public sealed class ProjectedChatMessage
         $"ProjectedChatMessage(ContentId={ContentId}, Reactions={Reactions.Count}, Text=[REDACTED])";
 }
 
+/// <summary>Common rendering state for projected text and attachment items.</summary>
+public interface IProjectedChatItem
+{
+    /// <summary>Logical content identifier used by replies and reactions.</summary>
+    ChatContentId ContentId { get; }
+
+    /// <summary>Recipient-specific envelope id that supplied this projection.</summary>
+    MessageId DeliveryMessageId { get; }
+
+    /// <summary>Authenticated sending user.</summary>
+    UserId SenderUserId { get; }
+
+    /// <summary>Authenticated signing device.</summary>
+    DeviceId SenderDeviceId { get; }
+
+    /// <summary>Sender-supplied timestamp authenticated by the envelope.</summary>
+    DateTimeOffset SentAt { get; }
+
+    /// <summary>Optional referenced logical content.</summary>
+    ChatContentId? ReplyToContentId { get; }
+
+    /// <summary>Active reactions grouped by rendering token.</summary>
+    IReadOnlyList<ProjectedChatReaction> Reactions { get; }
+}
+
+/// <summary>One projected attachment manifest with active reactions.</summary>
+public sealed class ProjectedChatAttachment : IProjectedChatItem
+{
+    private readonly ReadOnlyCollection<ProjectedChatReaction> _reactions;
+
+    internal ProjectedChatAttachment(
+        ReceivedChatContent delivery,
+        ChatAttachmentContent content,
+        IEnumerable<ProjectedChatReaction> reactions)
+    {
+        ContentId = content.ContentId;
+        DeliveryMessageId = delivery.DeliveryMessageId;
+        SenderUserId = delivery.SenderUserId;
+        SenderDeviceId = delivery.SenderDeviceId;
+        SentAt = delivery.SentAt;
+        AttachmentId = content.AttachmentId;
+        FileName = content.FileName;
+        MediaType = content.MediaType;
+        PlaintextLength = content.PlaintextLength;
+        Caption = content.Caption;
+        ReplyToContentId = content.ReplyToContentId;
+        Manifest = content;
+        _reactions = Array.AsReadOnly(reactions.ToArray());
+    }
+
+    /// <inheritdoc />
+    public ChatContentId ContentId { get; }
+
+    /// <inheritdoc />
+    public MessageId DeliveryMessageId { get; }
+
+    /// <inheritdoc />
+    public UserId SenderUserId { get; }
+
+    /// <inheritdoc />
+    public DeviceId SenderDeviceId { get; }
+
+    /// <inheritdoc />
+    public DateTimeOffset SentAt { get; }
+
+    /// <summary>Opaque separately stored blob identifier.</summary>
+    public AttachmentId AttachmentId { get; }
+
+    /// <summary>Decrypted display file name.</summary>
+    public string FileName { get; }
+
+    /// <summary>Decrypted sender-declared media type.</summary>
+    public string MediaType { get; }
+
+    /// <summary>Expected decrypted size.</summary>
+    public long PlaintextLength { get; }
+
+    /// <summary>Optional decrypted caption.</summary>
+    public string? Caption { get; }
+
+    /// <inheritdoc />
+    public ChatContentId? ReplyToContentId { get; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ProjectedChatReaction> Reactions => _reactions;
+
+    /// <summary>Decryption manifest for a trusted host attachment transport.</summary>
+    public ChatAttachmentContent Manifest { get; }
+
+    /// <inheritdoc />
+    public override string ToString() =>
+        $"ProjectedChatAttachment(ContentId={ContentId}, AttachmentId={AttachmentId}, Manifest=[REDACTED])";
+}
+
 /// <summary>
 /// Thread-safe in-memory reducer for authenticated text and reaction events in one conversation.
 /// Hosts remain responsible for protected durable local history.
@@ -99,7 +195,7 @@ public sealed class ChatConversationProjection
     private readonly object _gate = new();
     private readonly Dictionary<ChatContentId, ReceivedChatContent> _events = [];
     private readonly HashSet<ChatContentId> _conflictedContentIds = [];
-    private readonly Dictionary<ChatContentId, ReceivedChatContent> _texts = [];
+    private readonly Dictionary<ChatContentId, ReceivedChatContent> _items = [];
     private readonly Dictionary<ReactionKey, ReceivedChatContent> _reactionStates = [];
 
     /// <summary>Creates an empty projection for exactly one conversation.</summary>
@@ -159,12 +255,27 @@ public sealed class ChatConversationProjection
     {
         lock (_gate)
         {
-            var messages = _texts.Values
+            var messages = _items.Values
+                .Where(static item => item.Content is ChatTextContent)
                 .OrderBy(static item => item.SentAt)
                 .ThenBy(static item => item.Content.ContentId.Value)
                 .Select(CreateProjectedMessage)
                 .ToArray();
             return Array.AsReadOnly(messages);
+        }
+    }
+
+    /// <summary>Returns all visible text and attachment items in deterministic order.</summary>
+    public IReadOnlyList<IProjectedChatItem> SnapshotTimeline()
+    {
+        lock (_gate)
+        {
+            var items = _items.Values
+                .OrderBy(static item => item.SentAt)
+                .ThenBy(static item => item.Content.ContentId.Value)
+                .Select(CreateProjectedItem)
+                .ToArray();
+            return Array.AsReadOnly(items);
         }
     }
 
@@ -181,8 +292,20 @@ public sealed class ChatConversationProjection
     private ProjectedChatMessage CreateProjectedMessage(ReceivedChatContent delivery)
     {
         var text = (ChatTextContent)delivery.Content;
-        var reactions = _reactionStates.Values
-            .Where(item => ((ChatReactionContent)item.Content).TargetContentId == text.ContentId)
+        return new ProjectedChatMessage(delivery, text, CreateReactions(text.ContentId));
+    }
+
+    private IProjectedChatItem CreateProjectedItem(ReceivedChatContent delivery) => delivery.Content switch
+    {
+        ChatTextContent text => new ProjectedChatMessage(delivery, text, CreateReactions(text.ContentId)),
+        ChatAttachmentContent attachment =>
+            new ProjectedChatAttachment(delivery, attachment, CreateReactions(attachment.ContentId)),
+        _ => throw new InvalidOperationException("Unsupported projected chat content type."),
+    };
+
+    private ProjectedChatReaction[] CreateReactions(ChatContentId targetContentId) =>
+        _reactionStates.Values
+            .Where(item => ((ChatReactionContent)item.Content).TargetContentId == targetContentId)
             .Where(item => ((ChatReactionContent)item.Content).Operation == ChatReactionOperation.Add)
             .GroupBy(item => ((ChatReactionContent)item.Content).Reaction, StringComparer.Ordinal)
             .OrderBy(static group => group.Key, StringComparer.Ordinal)
@@ -190,15 +313,14 @@ public sealed class ChatConversationProjection
                 group.Key,
                 group.Select(static item => item.SenderUserId).OrderBy(static item => item.Value)))
             .ToArray();
-        return new ProjectedChatMessage(delivery, text, reactions);
-    }
 
     private void ApplyCore(ReceivedChatContent delivery)
     {
         switch (delivery.Content)
         {
             case ChatTextContent:
-                _texts.Add(delivery.Content.ContentId, delivery);
+            case ChatAttachmentContent:
+                _items.Add(delivery.Content.ContentId, delivery);
                 break;
             case ChatReactionContent reaction:
                 var key = new ReactionKey(reaction.TargetContentId, delivery.SenderUserId, reaction.Reaction);
@@ -215,7 +337,7 @@ public sealed class ChatConversationProjection
 
     private void Rebuild()
     {
-        _texts.Clear();
+        _items.Clear();
         _reactionStates.Clear();
         foreach (var delivery in _events.Values)
         {
@@ -252,6 +374,18 @@ public sealed class ChatConversationProjection
                 first.TargetContentId == second.TargetContentId &&
                 first.Reaction == second.Reaction &&
                 first.Operation == second.Operation,
+            (ChatAttachmentContent first, ChatAttachmentContent second) =>
+                first.AttachmentId == second.AttachmentId &&
+                first.FileName == second.FileName &&
+                first.MediaType == second.MediaType &&
+                first.PlaintextLength == second.PlaintextLength &&
+                first.CiphertextLength == second.CiphertextLength &&
+                first.ChunkPlaintextBytes == second.ChunkPlaintextBytes &&
+                first.Caption == second.Caption &&
+                first.ReplyToContentId == second.ReplyToContentId &&
+                CryptographicOperations.FixedTimeEquals(first.CiphertextSha256.Span, second.CiphertextSha256.Span) &&
+                CryptographicOperations.FixedTimeEquals(first.FileKey.Span, second.FileKey.Span) &&
+                CryptographicOperations.FixedTimeEquals(first.NoncePrefix.Span, second.NoncePrefix.Span),
             _ => false,
         };
     }

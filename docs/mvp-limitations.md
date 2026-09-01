@@ -8,15 +8,15 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 
 ## Functional limits
 
-- Personal text chat with encrypted replies, non-provenance forwarding and reaction events.
+- Personal chat with encrypted text, replies, non-provenance text forwarding, reactions and independently encrypted attachment manifests.
 - One envelope per recipient device; the host owns device enumeration and fan-out.
-- No message editing/deletion, groups, attachments or streaming media.
+- No message editing/deletion, groups, attachment forwarding, resumable/multipart uploads, range playback, thumbnails or automatic media preview. Photos/videos may be prepared locally before the current HTTP path streams a complete ciphertext object.
 - No push-notification provider integration.
 - No key backup, recovery, transfer or account reset protocol.
 - The optional Minimal API and typed HTTP client support request/response polling only; no WebSocket or SignalR push transport is included.
 - Delivery is at-least-once. Concurrent pollers may observe the same envelope before acknowledgement; exactly-once local display depends on a transactional `IReceivedMessageStore`.
 - No token issuer, token format, authentication scheme or identity-provider integration is selected by the packages.
-- No UI and no SkopiClub integration.
+- Optional UI.Core and Blazor conversation components are included, but there is no product shell, contacts/conversation navigation, MAUI/Avalonia adapter or SkopiClub integration.
 - No federation, traffic padding, sealed sender or metadata hiding.
 
 ## Required host responsibilities
@@ -27,9 +27,13 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - Protect device registration and revocation, rate-limit all endpoints and avoid sensitive logging.
 - Deliver public-key changes to users and require security-code comparison for high-risk conversations.
 - Run migration/TTL cleanup jobs and configure retention, database encryption, backup and operational monitoring.
+- Choose and harden one `IAttachmentStore`: bounded PostgreSQL `bytea` for small files or S3-compatible object storage for larger media. Configure quotas, proxy limits, bucket/database policy, encryption at rest, orphan/expiry cleanup and backup/restore.
+- Implement `IAttachmentAccessAuthorizer` against authoritative conversation membership. Treat decrypted names/MIME as untrusted, discard partial output on failure, prevent path traversal and scan content before preview/open.
+- If media preparation is enabled, provision a private plaintext working directory, pin/sandbox the host FFmpeg binary, bound concurrent processes/time/disk and clean stale operation directories after abnormal termination. `File` mode is the exact-byte escape hatch; JPEG conversion does not preserve PNG transparency/animation.
 - Keep the PostgreSQL reliability and HTTP integration gates mandatory in release CI; extend them with sustained-load, deployment-specific failover and restore exercises.
 - Treat decrypted local messages as sensitive and implement transactional `IReceivedMessageStore` deduplication.
 - Persist typed content and projection history only in a protected local store; the included projection is in-memory and does not provide backup, retention or cross-device synchronization.
+- Treat UI drafts, templates, browser/Blazor Server circuits and rendered notification text as plaintext. Keep templates encoded, bound retention and do not log `IChatContentSender` input or remote response bodies.
 
 ## Roadmap
 
@@ -37,6 +41,6 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 2. Append-only key transparency and key-change UX for the authenticated device directory.
 3. Maintained ratcheting protocol for personal chat, introduced as a new protocol version with explicit migration.
 4. Multi-device fan-out, device-list consistency and safe device removal.
-5. Attachment encryption with independent keys, bounded streaming and integrity manifests.
+5. Resumable/multipart attachments, range playback, thumbnails and a separately reviewed safe-forwarding/revocation policy.
 6. Groups, preferably through a maintained MLS implementation when a supported .NET integration is available.
 7. Optional protected key backup/recovery with a separately reviewed threat model.

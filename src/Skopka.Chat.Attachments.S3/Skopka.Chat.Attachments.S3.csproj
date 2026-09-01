@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Attachments.S3</PackageId>
+    <Description>S3-compatible object storage for Skopka.Chat encrypted attachments.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Attachments\Skopka.Chat.Attachments.csproj" />
+    <PackageReference Include="AWSSDK.S3" />
+  </ItemGroup>
+
+</Project>

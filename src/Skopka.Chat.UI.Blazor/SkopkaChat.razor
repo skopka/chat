@@ -1,0 +1,199 @@
+@implements IDisposable
+
+<section @attributes="AdditionalAttributes" class="@RootClass" style="@Style" aria-busy="@ViewModel.IsSendingDraft">
+    <div class="skopka-chat__timeline" role="log" aria-label="@Strings.Timeline" aria-live="polite">
+        @if (ViewModel.Timeline.Count == 0)
+        {
+            if (EmptyTemplate is null)
+            {
+                <p class="skopka-chat__empty">@Strings.EmptyConversation</p>
+            }
+            else
+            {
+                @EmptyTemplate
+            }
+        }
+        else
+        {
+            @foreach (var item in ViewModel.Timeline)
+            {
+                if (item is ProjectedChatMessage message)
+                {
+                    if (MessageTemplate is null)
+                    {
+                        <SkopkaChatMessage @key="message.ContentId"
+                                           ViewModel="ViewModel"
+                                           Message="message"
+                                           Strings="Strings"
+                                           ReactionChoices="ReactionChoices"
+                                           ShowActions="ShowMessageActions"
+                                           SenderLabel="SenderLabel"
+                                           TimeFormatter="TimeFormatter"
+                                           ForwardRequested="ForwardRequested"
+                                           CommandFailed="CommandFailed" />
+                    }
+                    else
+                    {
+                        @MessageTemplate(new ChatMessageTemplateContext(ViewModel, message))
+                    }
+                }
+                else if (item is ProjectedChatAttachment attachment)
+                {
+                    if (AttachmentTemplate is null)
+                    {
+                        <SkopkaChatAttachment @key="attachment.ContentId"
+                                              ViewModel="ViewModel"
+                                              Attachment="attachment"
+                                              Strings="Strings"
+                                              ReactionChoices="ReactionChoices"
+                                              ShowActions="ShowMessageActions"
+                                              SenderLabel="AttachmentSenderLabel"
+                                              TimeFormatter="TimeFormatter"
+                                              DownloadRequested="AttachmentDownloadRequested"
+                                              CommandFailed="CommandFailed" />
+                    }
+                    else
+                    {
+                        @AttachmentTemplate(new ChatAttachmentTemplateContext(ViewModel, attachment))
+                    }
+                }
+            }
+        }
+    </div>
+
+    @if (ComposerTemplate is null)
+    {
+        <SkopkaChatComposer ViewModel="ViewModel"
+                            Strings="Strings"
+                            AttachmentSender="AttachmentSender"
+                            MaxMediaSelectionBytes="MaxMediaSelectionBytes"
+                            CommandFailed="CommandFailed" />
+    }
+    else
+    {
+        @ComposerTemplate(new ChatComposerTemplateContext(ViewModel))
+    }
+</section>
+
+@code {
+    private ChatViewModel? _subscribedViewModel;
+
+    /// <summary>Framework-independent state and commands rendered by this component.</summary>
+    [Parameter, EditorRequired]
+    public ChatViewModel ViewModel { get; set; } = null!;
+
+    /// <summary>Optional class for theme scoping.</summary>
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>Optional inline style, including CSS custom-property overrides.</summary>
+    [Parameter]
+    public string? Style { get; set; }
+
+    /// <summary>Replaceable localized strings.</summary>
+    [Parameter]
+    public SkopkaChatStrings Strings { get; set; } = SkopkaChatStrings.Default;
+
+    /// <summary>Quick-reaction choices shown by the default message component.</summary>
+    [Parameter]
+    public IReadOnlyList<string> ReactionChoices { get; set; } = SkopkaChatDefaults.Reactions;
+
+    /// <summary>Whether default reply, forward and quick-reaction actions are visible.</summary>
+    [Parameter]
+    public bool ShowMessageActions { get; set; } = true;
+
+    /// <summary>Optional complete replacement for each message.</summary>
+    [Parameter]
+    public RenderFragment<ChatMessageTemplateContext>? MessageTemplate { get; set; }
+
+    /// <summary>Optional complete replacement for each attachment card.</summary>
+    [Parameter]
+    public RenderFragment<ChatAttachmentTemplateContext>? AttachmentTemplate { get; set; }
+
+    /// <summary>Optional complete replacement for the composer.</summary>
+    [Parameter]
+    public RenderFragment<ChatComposerTemplateContext>? ComposerTemplate { get; set; }
+
+    /// <summary>Optional replacement for the empty timeline.</summary>
+    [Parameter]
+    public RenderFragment? EmptyTemplate { get; set; }
+
+    /// <summary>Host callback that opens a target-conversation picker for forwarding.</summary>
+    [Parameter]
+    public EventCallback<ProjectedChatMessage> ForwardRequested { get; set; }
+
+    /// <summary>Host callback that retrieves, authenticates and decrypts an attachment.</summary>
+    [Parameter]
+    public EventCallback<ProjectedChatAttachment> AttachmentDownloadRequested { get; set; }
+
+    /// <summary>
+    /// Optional host pipeline for browser-selected photo/video content. The default selection mode is automatic
+    /// media compression; the user can explicitly request exact-file transfer.
+    /// </summary>
+    [Parameter]
+    public ChatBrowserAttachmentSender? AttachmentSender { get; set; }
+
+    /// <summary>Maximum browser-selected source size accepted before invoking the host pipeline.</summary>
+    [Parameter]
+    public long MaxMediaSelectionBytes { get; set; } = 5L * 1024 * 1024 * 1024;
+
+    /// <summary>Generic expected-failure callback; no exception or remote text is exposed.</summary>
+    [Parameter]
+    public EventCallback<SkopkaChatCommand> CommandFailed { get; set; }
+
+    /// <summary>Optional sender-label formatter.</summary>
+    [Parameter]
+    public Func<ProjectedChatMessage, string>? SenderLabel { get; set; }
+
+    /// <summary>Optional attachment sender-label formatter.</summary>
+    [Parameter]
+    public Func<ProjectedChatAttachment, string>? AttachmentSenderLabel { get; set; }
+
+    /// <summary>Optional timestamp formatter.</summary>
+    [Parameter]
+    public Func<DateTimeOffset, string>? TimeFormatter { get; set; }
+
+    /// <summary>Additional attributes applied to the root section.</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string RootClass => string.IsNullOrWhiteSpace(CssClass)
+        ? "skopka-chat"
+        : $"skopka-chat {CssClass}";
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        ArgumentNullException.ThrowIfNull(ViewModel);
+        ArgumentNullException.ThrowIfNull(Strings);
+        ArgumentNullException.ThrowIfNull(ReactionChoices);
+        if (MaxMediaSelectionBytes <= 0 || MaxMediaSelectionBytes > 5L * 1024 * 1024 * 1024)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxMediaSelectionBytes));
+        }
+        if (!ReferenceEquals(_subscribedViewModel, ViewModel))
+        {
+            Unsubscribe();
+            _subscribedViewModel = ViewModel;
+            _subscribedViewModel.StateChanged += HandleStateChanged;
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        Unsubscribe();
+        GC.SuppressFinalize(this);
+    }
+
+    private void HandleStateChanged(object? sender, EventArgs args) => _ = InvokeAsync(StateHasChanged);
+
+    private void Unsubscribe()
+    {
+        if (_subscribedViewModel is not null)
+        {
+            _subscribedViewModel.StateChanged -= HandleStateChanged;
+            _subscribedViewModel = null;
+        }
+    }
+}

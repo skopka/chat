@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using SharpFuzz;
@@ -91,7 +92,8 @@ internal static class ChatFuzzTarget
                     RoundTrip(json, SkopkaChatHttpJsonContext.Default.SubmitEnvelopeResponse);
                     break;
                 default:
-                    var content = ChatContentEncoding.Decode(json);
+                    var contentBytes = DecodeContentSeed(json);
+                    var content = ChatContentEncoding.Decode(contentBytes);
                     _ = ChatContentEncoding.Decode(ChatContentEncoding.Encode(content));
                     break;
             }
@@ -126,6 +128,23 @@ internal static class ChatFuzzTarget
     private static byte SelectTarget(byte value) => value is >= (byte)'0' and <= (byte)'7'
         ? (byte)(value - (byte)'0')
         : (byte)(value % 8);
+
+    private static byte[] DecodeContentSeed(ReadOnlySpan<byte> value)
+    {
+        if (!value.StartsWith("hex:"u8))
+        {
+            return value.ToArray();
+        }
+
+        try
+        {
+            return Convert.FromHexString(Encoding.ASCII.GetString(value[4..]).Trim());
+        }
+        catch (FormatException)
+        {
+            return value.ToArray();
+        }
+    }
 
     private static byte[]? ReadBounded(Stream input)
     {

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Media.FFmpeg</PackageId>
+    <Description>Optional FFmpeg photo and video preparation for Skopka.Chat encrypted attachments.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Media\Skopka.Chat.Media.csproj" />
+  </ItemGroup>
+
+</Project>

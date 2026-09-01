@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Skopka.Chat.Attachments;
 using Skopka.Chat.Transport.Http;
 
 namespace Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,17 @@ public static class SkopkaChatServiceCollectionExtensions
         {
             SkopkaChatHttpJson.Configure(options.SerializerOptions);
         });
+        return services;
+    }
+
+    /// <summary>
+    /// Enables encrypted attachment HTTP endpoints. The host must register exactly one
+    /// <see cref="IAttachmentStore"/> and one <see cref="IAttachmentAccessAuthorizer"/>.
+    /// </summary>
+    public static IServiceCollection AddSkopkaChatAttachmentStorage(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddScoped<AttachmentStorageService>();
         return services;
     }
 }

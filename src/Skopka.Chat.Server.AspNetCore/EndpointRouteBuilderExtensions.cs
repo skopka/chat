@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Skopka.Chat.Attachments;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
 using Skopka.Chat.Transport.Http;
@@ -44,7 +46,192 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         group.MapPost(SkopkaChatHttpRoutes.Envelopes, SubmitEnvelopeAsync);
         group.MapGet(SkopkaChatHttpRoutes.Deliveries, GetDeliveriesAsync);
         group.MapPost($"{SkopkaChatHttpRoutes.Deliveries}/{{messageId:guid}}/acknowledgements", AcknowledgeAsync);
+        var serviceProbe = endpoints.ServiceProvider.GetRequiredService<IServiceProviderIsService>();
+        if (serviceProbe.IsService(typeof(AttachmentStorageService)))
+        {
+            group.MapPut($"{SkopkaChatHttpRoutes.Attachments}/{{attachmentId:guid}}", UploadAttachmentAsync)
+                .WithMetadata(new RequestSizeLimitAttribute(AttachmentStorageLimits.MaxCiphertextBytes));
+            group.MapGet($"{SkopkaChatHttpRoutes.Attachments}/{{attachmentId:guid}}", DownloadAttachmentAsync);
+            group.MapDelete($"{SkopkaChatHttpRoutes.Attachments}/{{attachmentId:guid}}", DeleteAttachmentAsync);
+        }
+
         return group;
+    }
+
+    private static async Task<IResult> UploadAttachmentAsync(
+        Guid attachmentId,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        AttachmentStorageService attachments,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        if (!string.Equals(context.Request.ContentType, "application/octet-stream", StringComparison.OrdinalIgnoreCase) ||
+            context.Request.ContentLength is not { } contentLength ||
+            !TryGetSingleHeader(context, SkopkaChatAttachmentHeaders.ConversationId, out var conversationValue) ||
+            !Guid.TryParseExact(conversationValue, "D", out var conversationId) ||
+            !TryGetSingleHeader(context, SkopkaChatAttachmentHeaders.CiphertextSha256, out var hashValue) ||
+            hashValue.Length != AttachmentStorageLimits.Sha256Bytes * 2)
+        {
+            return InvalidRequestProblem();
+        }
+
+        byte[] ciphertextSha256;
+        try
+        {
+            ciphertextSha256 = Convert.FromHexString(hashValue);
+        }
+        catch (FormatException)
+        {
+            return InvalidRequestProblem();
+        }
+
+        DateTimeOffset? expiresAt = null;
+        if (!TryGetOptionalSingleHeader(context, SkopkaChatAttachmentHeaders.ExpiresAt, out var expiryValue))
+        {
+            return InvalidRequestProblem();
+        }
+
+        if (expiryValue is not null)
+        {
+            if (!DateTimeOffset.TryParseExact(
+                    expiryValue,
+                    "O",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind,
+                    out var parsedExpiry))
+            {
+                return InvalidRequestProblem();
+            }
+
+            expiresAt = parsedExpiry;
+        }
+
+        try
+        {
+            var request = new AttachmentUploadRequest(
+                new AttachmentId(attachmentId),
+                new ConversationId(conversationId),
+                contentLength,
+                ciphertextSha256,
+                expiresAt);
+            var result = await attachments.UploadAsync(
+                ownership.Value.Identity.UserId,
+                request,
+                context.Request.Body,
+                cancellationToken).ConfigureAwait(false);
+            return result switch
+            {
+                AttachmentStoreResult.Stored => Results.StatusCode(StatusCodes.Status201Created),
+                AttachmentStoreResult.Duplicate => Results.Ok(),
+                AttachmentStoreResult.Conflict => ConflictProblem(),
+                _ => throw new InvalidOperationException("Unknown attachment storage outcome."),
+            };
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+        catch (InvalidDataException)
+        {
+            return InvalidRequestProblem();
+        }
+        catch (AttachmentServiceException)
+        {
+            return Results.Forbid();
+        }
+    }
+
+    private static async Task<IResult> DownloadAttachmentAsync(
+        Guid attachmentId,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        AttachmentStorageService attachments,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        try
+        {
+            var id = new AttachmentId(attachmentId);
+            var metadata = await attachments.GetDownloadMetadataAsync(
+                ownership.Value.Identity.UserId,
+                id,
+                cancellationToken).ConfigureAwait(false);
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "application/octet-stream";
+            context.Response.ContentLength = metadata.CiphertextLength;
+            context.Response.Headers[SkopkaChatAttachmentHeaders.ConversationId] = metadata.ConversationId.ToString();
+            context.Response.Headers[SkopkaChatAttachmentHeaders.CiphertextSha256] =
+                Convert.ToHexString(metadata.CiphertextSha256.Span);
+            if (metadata.ExpiresAt is { } expiresAt)
+            {
+                context.Response.Headers[SkopkaChatAttachmentHeaders.ExpiresAt] =
+                    expiresAt.ToString("O", CultureInfo.InvariantCulture);
+            }
+
+            await attachments.DownloadAsync(
+                ownership.Value.Identity.UserId,
+                id,
+                context.Response.Body,
+                cancellationToken).ConfigureAwait(false);
+            return Results.Empty;
+        }
+        catch (ArgumentException)
+        {
+            return Results.NotFound();
+        }
+        catch (AttachmentServiceException)
+        {
+            return Results.NotFound();
+        }
+    }
+
+    private static async Task<IResult> DeleteAttachmentAsync(
+        Guid attachmentId,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        AttachmentStorageService attachments,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        try
+        {
+            return await attachments.DeleteAsync(
+                ownership.Value.Identity.UserId,
+                new AttachmentId(attachmentId),
+                cancellationToken).ConfigureAwait(false)
+                ? Results.NoContent()
+                : Results.NotFound();
+        }
+        catch (ArgumentException)
+        {
+            return Results.NotFound();
+        }
+        catch (AttachmentServiceException)
+        {
+            return Results.Forbid();
+        }
     }
 
     private static async Task<IResult> RegisterDeviceAsync(
@@ -391,6 +578,35 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
     private static IResult ConflictProblem() => Results.Problem(
         statusCode: StatusCodes.Status409Conflict,
         title: "Chat operation rejected.");
+
+    private static bool TryGetSingleHeader(HttpContext context, string name, out string value)
+    {
+        value = string.Empty;
+        if (!context.Request.Headers.TryGetValue(name, out var values) || values.Count != 1)
+        {
+            return false;
+        }
+
+        value = values[0] ?? string.Empty;
+        return value.Length > 0;
+    }
+
+    private static bool TryGetOptionalSingleHeader(HttpContext context, string name, out string? value)
+    {
+        value = null;
+        if (!context.Request.Headers.TryGetValue(name, out var values))
+        {
+            return true;
+        }
+
+        if (values.Count != 1 || string.IsNullOrEmpty(values[0]))
+        {
+            return false;
+        }
+
+        value = values[0];
+        return true;
+    }
 
     private readonly record struct OwnedDevice(ChatRequestIdentity Identity, PublicDevice Device);
 }

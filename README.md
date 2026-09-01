@@ -7,18 +7,28 @@ Skopka.Chat — переиспользуемый транспорт-незави
 ## Пакеты
 
 - `Skopka.Chat.Protocol` — идентификаторы, лимиты, публичные контракты и каноническое бинарное представление v1; без ASP.NET Core, EF Core и криптографии клиента.
-- `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, типизированный encrypted content (ответы, пересылки, реакции), локальная проекция, fingerprints/security codes, `IChatTransport` и дедупликация.
+- `Skopka.Chat.Attachments` — transport-neutral контракт immutable ciphertext storage, авторизация upload/download/delete и общие лимиты; зависит только от Protocol.
+- `Skopka.Chat.Attachments.PostgreSql` — отдельный `AttachmentDbContext`, migration и ограниченное `bytea`-хранилище для небольших зашифрованных файлов.
+- `Skopka.Chat.Attachments.S3` — потоковое S3-compatible хранилище с conditional create, проверкой длины/SHA-256 и без перезаписи объекта.
+- `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, типизированный encrypted content (ответы, пересылки, реакции, attachment manifest v2), потоковое шифрование файлов, локальная проекция, fingerprints/security codes, `IChatTransport` и дедупликация.
+- `Skopka.Chat.Media` — client-side режимы `Auto`/`Media`/`File`, заменяемая подготовка фото/видео и orchestration prepare → encrypt → upload; без server/persistence/UI framework.
+- `Skopka.Chat.Media.FFmpeg` — необязательное локальное JPEG/H.264/AAC преобразование через host-supplied FFmpeg; binary не входит в NuGet-пакет.
+- `Skopka.Chat.UI.Core` — framework-independent `ChatViewModel`, composer/reply/reaction/forward commands и host-owned `IChatContentSender`; без зависимости от Blazor, transport или server.
+- `Skopka.Chat.UI.Blazor` — доступные Blazor-компоненты с CSS variables, локализуемыми строками и заменяемыми message/attachment/composer templates.
 - `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
-- `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses и ограниченные retries идемпотентных операций; без ссылки на Server.
+- `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses, потоковая загрузка/расшифровка attachments и ограниченные retries идемпотентных операций; без ссылки на Server.
 - `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
-- `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints с обязательной авторизацией и строгой привязкой user/device claims к серверным операциям; без выбора формата токена или identity provider.
+- `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.8.0` по-прежнему реализует protocol v1; minor-релиз добавляет версионированное содержимое внутри ciphertext, стабильный `ChatContentId`, ответы, безопасную пересылку без ложной атрибуции, реакции и детерминированную клиентскую проекцию. Маршруты, DTO, серверное хранилище и канонический wire format конверта не изменились. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.11.0` — первый публичный согласованный набор после `0.7.0`. Он сохраняет protocol v1 и добавляет накопленные клиентские возможности: encrypted content v1 для ответов/пересылок/реакций, адаптируемый UI, attachment content v2 с PostgreSQL/S3 storage и локальную подготовку фото/видео с точным режимом `File`. Canonical protocol-v1 bytes не меняются; сервер и storage по-прежнему получают только ciphertext. Промежуточные линии `0.8.x`–`0.10.x` публично не выпускались. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Документация
 
 - [Индекс документации](docs/README.md)
+- [Руководство по адаптируемому UI](docs/ui.md)
+- [Руководство по encrypted attachments](docs/attachments.md)
+- [Подготовка фото и видео](docs/media.md)
 - [Руководство разработчика](docs/development.md)
 - [Руководство по выпуску](docs/releasing.md)
 - [Инструкции для coding-агентов](AGENTS.md)
@@ -84,6 +94,66 @@ var reaction = new ChatReactionContent(
 Пересылка копирует только текст, очищает reply-ссылку и ставит `IsForwarded`. Она не переносит исходного автора, conversation ID или подпись и поэтому не выдаёт отображаемую атрибуцию за криптографическое доказательство. Реакция — отдельное зашифрованное событие `Add`/`Remove`; сервер не видит целевой `ChatContentId` или emoji. `ChatConversationProjection` принимает уже аутентифицированный `ReceivedChatContent`, сохраняет реакцию, пришедшую раньше сообщения, и детерминированно выбирает последнее событие одного пользователя.
 
 Сырые `EncryptTextAsync`, `EncryptAsync`, `DecryptAsync` и `ChatReceiver.ReceiveAsync` сохранены для приложений `0.1.x`–`0.7.x`; они не пытаются угадать тип содержимого. Новые приложения должны явно использовать `EncryptContentAsync`, `DecryptContentAsync` или `ReceiveContentAsync`.
+
+## Передача файлов и медиа
+
+Файл не помещается в 64-КиБ envelope. Клиент потоково шифрует его независимым случайным ключом по XChaCha20-Poly1305 chunks, загружает ciphertext в выбранное хранилище и только затем отправляет небольшой `ChatAttachmentContent` каждому устройству. Имя, MIME, caption, plaintext length, ключ и nonce prefix находятся внутри E2EE-манифеста; сервер/S3/PostgreSQL видят только opaque ID, conversation/uploader IDs, ciphertext length/hash и retention timestamps.
+
+```csharp
+await using var input = File.OpenRead(localPath);
+await using var encrypted = File.Create(ciphertextPath);
+var manifest = await ChatAttachmentCryptoService.EncryptAsync(
+    input,
+    input.Length,
+    encrypted,
+    AttachmentId.New(),
+    ChatContentId.New(),
+    Path.GetFileName(localPath),
+    "application/octet-stream");
+
+encrypted.Position = 0;
+var stored = await api.UploadAttachmentAsync(conversationId, manifest, encrypted);
+if (stored is AttachmentStoreResult.Stored or AttachmentStoreResult.Duplicate)
+{
+    await chat.SendAttachmentAsync(manifest);
+}
+```
+
+Сообщения можно хранить в `Skopka.Chat.Persistence.PostgreSql`, а files — в `Skopka.Chat.Attachments.S3`. Для небольших файлов есть независимый `Skopka.Chat.Attachments.PostgreSql` с default limit 16 МиБ; общий контракт ограничен 5 ГиБ. S3 рекомендуется для больших media. Multipart/resume, range playback, thumbnails и attachment forwarding пока не входят в API. Подробный client/server setup: [docs/attachments.md](docs/attachments.md).
+
+Перед шифрованием `Skopka.Chat.Media` может подготовить локальное фото или видео. `Auto` сжимает поддерживаемое media, но сохраняет оригинал, если результат не меньше; `Media` требует преобразование; `File` полностью обходит процессор и сохраняет исходные байты/name/MIME. `Skopka.Chat.Media.FFmpeg` выдаёт bounded JPEG или H.264/AAC MP4, удаляет mapped metadata/chapters и использует только защищённую host-owned временную директорию. FFmpeg binary не загружается библиотекой. Полный setup: [docs/media.md](docs/media.md).
+
+## Адаптируемый UI
+
+`Skopka.Chat.UI.Core` хранит только presentation state одного диалога. Приложение реализует `IChatContentSender`: шифрует один `ChatContent`, создаёт отдельный `MessageId` для каждого устройства, отправляет конверты и возвращает подтверждённый локальный echo без текста удалённой ошибки. Входящие данные применяются только после `ChatReceiver.ReceiveContentAsync`:
+
+```csharp
+var chat = new ChatViewModel(conversationId, currentUserId, myContentSender);
+
+if (receiveResult.Delivery is not null)
+{
+    chat.Apply(receiveResult.Delivery);
+}
+
+chat.SetDraftText("hello");
+await chat.TrySendDraftAsync();
+```
+
+Готовый Blazor-компонент можно использовать целиком либо заменить message/composer templates:
+
+```razor
+@using Skopka.Chat.UI.Blazor
+
+<SkopkaChat ViewModel="Chat"
+            CssClass="brand-chat"
+            ForwardRequested="ChooseForwardTarget">
+    <MessageTemplate Context="item">
+        <MyMessageBubble Message="item.Message" />
+    </MessageTemplate>
+</SkopkaChat>
+```
+
+Цвета, размеры и типографика задаются CSS custom properties с префиксом `--skopka-chat-*`; строки заменяются через `SkopkaChatStrings`, quick reactions — через `ReactionChoices`. Полное руководство и границы безопасности находятся в [docs/ui.md](docs/ui.md).
 
 ## HTTP-клиент
 
@@ -166,6 +236,12 @@ builder.Services.AddSkopkaChatAspNetCore(options =>
     options.DeviceIdClaimType = "skopka_chat_device_id";
 });
 
+// Optional attachment layer: choose this PostgreSQL adapter or S3, not both.
+builder.Services.AddDbContext<AttachmentDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddScoped<IAttachmentStore, PostgreSqlAttachmentStore>();
+builder.Services.AddScoped<IAttachmentAccessAuthorizer, MyConversationAttachmentAuthorizer>();
+builder.Services.AddSkopkaChatAttachmentStorage();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapSkopkaChatApi();
@@ -185,22 +261,23 @@ dotnet run --project samples/Skopka.Chat.Sample
 
 NuGet-пакеты создаются в `artifacts/packages`.
 
-PostgreSQL integration tests в двух проектах запускаются только против явно предоставленной одноразовой базы:
+PostgreSQL integration tests в трёх проектах запускаются только против явно предоставленной одноразовой базы:
 
 ```powershell
 $env:SKOPKA_CHAT_POSTGRES = 'Host=localhost;Database=skopka_chat_tests;Username=postgres;Password=...'
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests
+dotnet test --project tests/Skopka.Chat.Attachments.Tests
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 ```
 
 Без переменной DB-тесты корректно пропускаются; остальные unit и in-memory integration tests не требуют инфраструктуры. Для release-like проверки установите также `$env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'`: тогда отсутствие connection string завершит тест ошибкой.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и оба DB-проекта, выполняет Release build/test/pack и сохраняет все семь `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) поднимает одноразовый PostgreSQL 18 service, последовательно требует hostile-input unit suite и все DB-gates, выполняет Release build/test/pack и сохраняет все четырнадцать `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает семь `.nupkg` вместе с семью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает четырнадцать `.nupkg` вместе с четырнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а клиент обязан сохранять локальную дедупликацию через транзакционную реализацию `IReceivedMessageStore`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 
 ## Что не входит в v1
 
-UI, production-инфраструктура, интеграция со SkopiClub, редактирование/удаление сообщений, группы, вложения, push, backup/recovery ключей и автоматический multi-device fan-out не входят в этот репозиторий. Контракты различают user и device, поэтому один пользователь может иметь несколько устройств, а отправитель создаёт отдельный конверт с уникальным `MessageId` для каждого устройства-получателя, переиспользуя один `ChatContentId`.
+Готовый product shell, список диалогов/контактов, MAUI/Avalonia adapters, production-инфраструктура, интеграция со SkopiClub, редактирование/удаление сообщений, группы, resumable/range media, thumbnails, attachment forwarding, push, backup/recovery ключей и автоматический multi-device fan-out не входят в этот репозиторий. Контракты различают user и device, поэтому один пользователь может иметь несколько устройств, а host-owned sender создаёт отдельный конверт с уникальным `MessageId` для каждого устройства-получателя, переиспользуя один `ChatContentId`.

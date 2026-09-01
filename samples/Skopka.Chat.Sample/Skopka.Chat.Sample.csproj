@@ -6,8 +6,10 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Skopka.Chat.Attachments\Skopka.Chat.Attachments.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Server\Skopka.Chat.Server.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.UI.Core\Skopka.Chat.UI.Core.csproj" />
   </ItemGroup>
 
 </Project>

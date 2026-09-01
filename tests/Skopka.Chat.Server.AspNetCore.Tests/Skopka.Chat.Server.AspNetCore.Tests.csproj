@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Attachments\Skopka.Chat.Attachments.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Client.Http\Skopka.Chat.Client.Http.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Server.AspNetCore\Skopka.Chat.Server.AspNetCore.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

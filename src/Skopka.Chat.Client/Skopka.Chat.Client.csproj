@@ -5,6 +5,7 @@
     <Description>Client-side identity, E2EE, typed chat content, reactions and local projection for Skopka.Chat.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Attachments\Skopka.Chat.Attachments.csproj" />
     <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />
     <PackageReference Include="NSec.Cryptography" />
   </ItemGroup>

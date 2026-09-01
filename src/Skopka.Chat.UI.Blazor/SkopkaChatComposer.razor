@@ -1,0 +1,178 @@
+@implements IDisposable
+
+<div class="skopka-chat-composer">
+    @if (ViewModel.ReplyTargetItem is { } reply)
+    {
+        <div class="skopka-chat-composer__reply">
+            <div>
+                <strong>@Strings.ReplyTo</strong>
+                <span>@GetReplyLabel(reply)</span>
+            </div>
+            <button type="button" class="skopka-chat-composer__cancel" @onclick="ViewModel.CancelReply">@Strings.Cancel</button>
+        </div>
+    }
+
+    @if (_draftRejected)
+    {
+        <p class="skopka-chat-composer__error" role="alert">@Strings.DraftTooLong</p>
+    }
+    else if (_attachmentRejected)
+    {
+        <p class="skopka-chat-composer__error" role="alert">@Strings.MediaTooLarge</p>
+    }
+    else if (_attachmentFailed)
+    {
+        <p class="skopka-chat-composer__error" role="alert">@Strings.CommandFailed</p>
+    }
+    else if (ViewModel.HasCommandError)
+    {
+        <p class="skopka-chat-composer__error" role="alert">@Strings.CommandFailed</p>
+    }
+
+    <div class="skopka-chat-composer__row">
+        <textarea class="skopka-chat-composer__input"
+                  aria-label="@Strings.Composer"
+                  placeholder="@Strings.ComposerPlaceholder"
+                  maxlength="@ChatContentLimits.MaxTextUtf8Bytes"
+                  disabled="@ViewModel.IsSendingDraft"
+                  value="@ViewModel.DraftText"
+                  @oninput="OnInput"></textarea>
+        <button type="button"
+                class="skopka-chat-composer__send"
+                disabled="@(!ViewModel.CanSendDraft)"
+                @onclick="SendAsync">@Strings.Send</button>
+    </div>
+
+    @if (AttachmentSender is not null)
+    {
+        <div class="skopka-chat-composer__attachments">
+            <label class="skopka-chat-composer__file-picker">
+                <span>@Strings.AttachMedia</span>
+                <InputFile OnChange="SelectAttachmentAsync"
+                           accept="image/*,video/*"
+                           aria-label="@Strings.AttachMedia"
+                           disabled="@_attachmentPending" />
+            </label>
+            <label class="skopka-chat-composer__file-mode">
+                <input type="checkbox"
+                       @bind="_sendAsFile"
+                       disabled="@_attachmentPending" />
+                <span>@Strings.SendAsFile</span>
+            </label>
+            @if (_attachmentPending)
+            {
+                <span class="skopka-chat-composer__media-progress" role="status">@Strings.PreparingMedia</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _draftRejected;
+    private bool _attachmentRejected;
+    private bool _attachmentFailed;
+    private bool _attachmentPending;
+    private bool _sendAsFile;
+    private readonly CancellationTokenSource _lifetime = new();
+
+    /// <summary>Owning presentation model.</summary>
+    [Parameter, EditorRequired]
+    public ChatViewModel ViewModel { get; set; } = null!;
+
+    /// <summary>Localized strings.</summary>
+    [Parameter]
+    public SkopkaChatStrings Strings { get; set; } = SkopkaChatStrings.Default;
+
+    /// <summary>Optional host-owned prepare/encrypt/upload/send pipeline for selected browser media.</summary>
+    [Parameter]
+    public ChatBrowserAttachmentSender? AttachmentSender { get; set; }
+
+    /// <summary>Maximum source size accepted from the browser.</summary>
+    [Parameter]
+    public long MaxMediaSelectionBytes { get; set; } = 5L * 1024 * 1024 * 1024;
+
+    /// <summary>Generic expected-failure callback.</summary>
+    [Parameter]
+    public EventCallback<SkopkaChatCommand> CommandFailed { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        ArgumentNullException.ThrowIfNull(ViewModel);
+        ArgumentNullException.ThrowIfNull(Strings);
+        if (MaxMediaSelectionBytes <= 0 || MaxMediaSelectionBytes > 5L * 1024 * 1024 * 1024)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxMediaSelectionBytes));
+        }
+    }
+
+    private void OnInput(ChangeEventArgs args)
+    {
+        try
+        {
+            ViewModel.SetDraftText(args.Value?.ToString() ?? string.Empty);
+            _draftRejected = false;
+        }
+        catch (ArgumentException)
+        {
+            _draftRejected = true;
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        _draftRejected = false;
+        if (!await ViewModel.TrySendDraftAsync() && ViewModel.HasCommandError)
+        {
+            await CommandFailed.InvokeAsync(SkopkaChatCommand.SendDraft);
+        }
+    }
+
+    private async Task SelectAttachmentAsync(InputFileChangeEventArgs args)
+    {
+        if (AttachmentSender is null || _attachmentPending)
+        {
+            return;
+        }
+
+        var file = args.File;
+        _attachmentRejected = file.Size > MaxMediaSelectionBytes;
+        _attachmentFailed = false;
+        if (_attachmentRejected)
+        {
+            return;
+        }
+
+        _attachmentPending = true;
+        try
+        {
+            var sent = await AttachmentSender(
+                new ChatBrowserAttachmentSelection(file, _sendAsFile),
+                _lifetime.Token);
+            if (!sent)
+            {
+                _attachmentFailed = true;
+                await CommandFailed.InvokeAsync(SkopkaChatCommand.SendAttachment);
+            }
+        }
+        finally
+        {
+            _attachmentPending = false;
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    private string GetReplyLabel(IProjectedChatItem item) => item switch
+    {
+        ProjectedChatMessage message => message.Text,
+        ProjectedChatAttachment attachment => attachment.FileName,
+        _ => Strings.ReplyUnavailable,
+    };
+}

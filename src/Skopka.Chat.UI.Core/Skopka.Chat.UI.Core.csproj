@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.UI.Core</PackageId>
+    <Description>Framework-independent presentation state and commands for adaptable Skopka.Chat user interfaces.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
+  </ItemGroup>
+
+</Project>

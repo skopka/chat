@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Media</PackageId>
+    <Description>Client-side media preparation and encrypted attachment upload orchestration for Skopka.Chat.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
+  </ItemGroup>
+
+</Project>
