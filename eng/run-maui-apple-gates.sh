@@ -16,9 +16,9 @@ run_gate() {
   local diagnostic
   diagnostic="$(tail -n 80 "$log_path" | tail -c 12000)"
   rm -f "$log_path"
-  diagnostic="${diagnostic//'%'/'%25'}"
-  diagnostic="${diagnostic//$'\r'/'%0D'}"
-  diagnostic="${diagnostic//$'\n'/'%0A'}"
+  diagnostic="${diagnostic//%/%25}"
+  diagnostic="${diagnostic//$'\r'/%0D}"
+  diagnostic="${diagnostic//$'\n'/%0A}"
   echo "::error title=MAUI ${phase} failed::${diagnostic}"
   return 1
 }
