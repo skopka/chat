@@ -243,8 +243,9 @@ jobs:
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          dotnet build src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-restore
-          dotnet build src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-restore
+          # Keep multi-TFM XAML source generation serial to avoid nondeterministic compiler collisions.
+          dotnet build src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-restore -m:1 -p:BuildInParallel=false
+          dotnet build src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-restore -m:1 -p:BuildInParallel=false
 
       - name: Run MAUI adapter and control tests
         shell: pwsh

@@ -290,8 +290,9 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          dotnet build src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-restore -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION"
-          dotnet build src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-restore -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION"
+          # Keep multi-TFM XAML source generation serial to avoid nondeterministic compiler collisions.
+          dotnet build src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-restore -m:1 -p:BuildInParallel=false -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION"
+          dotnet build src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-restore -m:1 -p:BuildInParallel=false -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION"
           dotnet test --project tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configuration Release
           dotnet test --project tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configuration Release
           dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release
