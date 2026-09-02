@@ -24,6 +24,8 @@ run_gate() {
 }
 
 sample="samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj"
-run_gate "iOS build" build "$sample" --framework net10.0-ios --configuration Release -p:RuntimeIdentifier=iossimulator-x64
+# The reviewed libsodium package ships ios-arm64, not simulator binaries.
+# This gate compiles and links the device app; signing/deployment is host-owned.
+run_gate "iOS build" build "$sample" --framework net10.0-ios --configuration Release -p:RuntimeIdentifier=ios-arm64 -p:EnableCodeSigning=false -p:CodesignRequireProvisioningProfile=false
 run_gate "Mac Catalyst build" build "$sample" --framework net10.0-maccatalyst --configuration Release -p:RuntimeIdentifier=maccatalyst-x64
 run_gate "Mac Catalyst trimming" publish "$sample" --framework net10.0-maccatalyst --configuration Release --no-restore -p:RuntimeIdentifier=maccatalyst-x64 -p:PublishTrimmed=true -p:RunAOTCompilation=false

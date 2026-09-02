@@ -20,6 +20,8 @@ Add `Skopka.Chat.UI.Maui` over UI.Core. Its `CollectionView` uses compiled XAML 
 
 The coordinated release grows from sixteen to eighteen packages. Linux remains the core/DB/fuzz pack gate, Windows builds/tests/packs MAUI and verifies Android package consumption and package target assets, and macOS compiles iOS/Mac Catalyst plus a trimming smoke. Release publication combines the two artifacts and rejects anything other than eighteen matching packages and symbol packages.
 
+The iOS gate compiles and natively links the unsigned ARM64 device app, not a simulator app: the reviewed NSec/libsodium dependency set contains `ios-arm64` but no `iossimulator-*` asset. All four platform gates remain required. Code signing and physical-device execution are host-owned; simulator support is not claimed without an additional native-dependency review.
+
 ## Consequences
 
 - Protocol-v1 and encrypted-content v1/v2/v3 canonical bytes are unchanged.

@@ -18,6 +18,12 @@ flowchart LR
 
 The MAUI packages do not reference Server, ASP.NET Core or PostgreSQL persistence. Authentication/token refresh, navigation, contacts, push notifications, platform entitlements, local retention and protected database placement remain application responsibilities.
 
+### Apple native runtime boundary
+
+The reviewed NSec 26.4.0 / libsodium 1.0.22 dependency set ships `ios-arm64`, `maccatalyst-arm64` and `maccatalyst-x64` native assets, but no `iossimulator-*` asset. iOS support therefore targets physical ARM64 devices; the sample's encrypted client cannot link for an iOS simulator with this dependency set. This follows the [NSec supported-platform matrix](https://nsec.rocks/docs/install). Do not substitute a macOS or device binary for a simulator binary.
+
+The macOS CI gate builds and natively links an unsigned iOS ARM64 device app and builds/trims Mac Catalyst. It does not deploy to a device or certify SecureStorage/Keychain behavior there. Signing, provisioning and physical-device smoke tests remain host responsibilities. Simulator support requires a separately reviewed compatible native dependency change; it is not claimed by this release.
+
 ## Client composition
 
 A normal session performs these steps:

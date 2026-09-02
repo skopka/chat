@@ -8,6 +8,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 
 ## Functional limits
 
+- MAUI iOS targets physical ARM64 devices. The reviewed NSec/libsodium package set has no iOS simulator native binary; CI validates an unsigned device build, not simulator execution or on-device Keychain behavior. See the [MAUI native runtime boundary](maui.md#apple-native-runtime-boundary).
 - Personal chat with encrypted text, replies, non-provenance text forwarding, reactions, text/attachment-caption edits and independently encrypted attachment manifests.
 - One envelope per active recipient/sibling device. The standard directory and durable sender perform fan-out, but the host still owns trust UX, account lifecycle and policy for starting a new logical send.
 - No message deletion, edit-history UI, groups, attachment replacement/forwarding, resumable/multipart uploads, range playback, thumbnails or automatic media preview. Photos/videos may be prepared locally before the current HTTP path streams a complete ciphertext object.

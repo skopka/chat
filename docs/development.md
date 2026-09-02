@@ -110,7 +110,7 @@ MAUI projects are listed in the solution for discovery but excluded from the def
 
 MAUI restore is configuration- and runtime-dependent: use `-p:Configuration=Release` for a separate release restore. Platform sample builds restore their selected framework/runtime graph automatically; do not pass a global `TargetFramework` to restore, because that overrides the framework of core project references. The Windows package-consumer gate downloads the core packages from the same CI run before consuming the two MAUI packages.
 
-On macOS, `bash eng/run-maui-apple-gates.sh` runs the iOS simulator build, Mac Catalyst build and trimmed Mac Catalyst publish used by CI. A failed native tool produces a bounded diagnostic annotation without hiding its failure exit code.
+On macOS, `bash eng/run-maui-apple-gates.sh` runs the unsigned iOS ARM64 device build, Mac Catalyst build and trimmed Mac Catalyst publish used by CI. A failed native tool produces a bounded diagnostic annotation without hiding its failure exit code.
 
 ```powershell
 dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
@@ -119,7 +119,7 @@ dotnet test --project tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.
 dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release
 ```
 
-Windows CI also builds the unpackaged Windows target and creates both MAUI NuGet packages, then inspects their Android/iOS/Mac Catalyst/Windows assets and restores `tests/Skopka.Chat.Maui.PackageConsumer` from those local files. macOS CI builds iOS simulator and Mac Catalyst targets and performs a trimmed Mac Catalyst publish smoke. A build on only one desktop OS is not the coordinated MAUI release gate.
+Windows CI also builds the unpackaged Windows target and creates both MAUI NuGet packages, then inspects their Android/iOS/Mac Catalyst/Windows assets and restores `tests/Skopka.Chat.Maui.PackageConsumer` from those local files. macOS CI builds the iOS ARM64 device and Mac Catalyst targets and performs a trimmed Mac Catalyst publish smoke. The reviewed libsodium package has no iOS simulator native asset; signing and on-device deployment remain host responsibilities. A build on only one desktop OS is not the coordinated MAUI release gate.
 
 Dependency audit follows the same platform boundary. Linux audits the thirty-two restored core projects through `Skopka.Chat.Core.slnf`; Windows separately audits the two MAUI packages, their two test projects and the MAUI sample after workload restore. Keep the filter synchronized with non-MAUI solution projects so adding a platform package cannot make Linux load an unsupported workload or silently remove that package from the appropriate audit.
 
