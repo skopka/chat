@@ -342,13 +342,8 @@ jobs:
       - name: Restore MAUI workloads
         run: dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
 
-      - name: Build iOS and Mac Catalyst release sample
-        run: |
-          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-ios --configuration Release -p:RuntimeIdentifier=iossimulator-x64
-          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release -p:RuntimeIdentifier=maccatalyst-x64
-
-      - name: Run trimmed Mac Catalyst release smoke build
-        run: dotnet publish samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release --no-restore -p:RuntimeIdentifier=maccatalyst-x64 -p:PublishTrimmed=true -p:RunAOTCompilation=false
+      - name: Build iOS and Mac Catalyst sample and run trimming smoke
+        run: bash eng/run-maui-apple-gates.sh
 
   combine-packages:
     name: Verify coordinated release set

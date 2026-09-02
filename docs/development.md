@@ -110,6 +110,8 @@ MAUI projects are listed in the solution for discovery but excluded from the def
 
 MAUI restore is configuration- and runtime-dependent: use `-p:Configuration=Release` for a separate release restore. Platform sample builds restore their selected framework/runtime graph automatically; do not pass a global `TargetFramework` to restore, because that overrides the framework of core project references. The Windows package-consumer gate downloads the core packages from the same CI run before consuming the two MAUI packages.
 
+On macOS, `bash eng/run-maui-apple-gates.sh` runs the iOS simulator build, Mac Catalyst build and trimmed Mac Catalyst publish used by CI. A failed native tool produces a bounded diagnostic annotation without hiding its failure exit code.
+
 ```powershell
 dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
 dotnet test --project tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configuration Release
