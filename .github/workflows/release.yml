@@ -116,7 +116,7 @@ jobs:
         run: bash eng/run-json-fuzz-smoke.sh 15 "${{ github.workspace }}/artifacts/fuzz-release"
 
       - name: Audit NuGet dependencies
-        run: dotnet list Skopka.Chat.sln package --vulnerable --include-transitive --no-restore
+        run: dotnet list Skopka.Chat.Core.slnf package --vulnerable --include-transitive --no-restore
 
       - name: Pack
         env:
@@ -240,6 +240,21 @@ jobs:
           dotnet restore tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configfile NuGet.Config
           dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config
 
+      - name: Audit MAUI NuGet dependencies
+        shell: pwsh
+        run: |
+          $projects = @(
+            'src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj',
+            'src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj',
+            'tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj',
+            'tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj',
+            'samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj'
+          )
+          foreach ($project in $projects) {
+            dotnet list $project package --vulnerable --include-transitive --no-restore
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Build and test MAUI release projects
         shell: pwsh
         env:
@@ -314,14 +329,14 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Restore MAUI workloads and sample
-        run: |
-          dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
-          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config
+      - name: Restore MAUI workloads
+        run: dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
 
       - name: Build iOS and Mac Catalyst release sample
         run: |
+          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config -p:TargetFramework=net10.0-ios -p:RuntimeIdentifier=iossimulator-x64
           dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-ios --configuration Release --no-restore -p:RuntimeIdentifier=iossimulator-x64
+          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config -p:TargetFramework=net10.0-maccatalyst -p:RuntimeIdentifier=maccatalyst-x64
           dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release --no-restore -p:RuntimeIdentifier=maccatalyst-x64
 
       - name: Run trimmed Mac Catalyst release smoke build

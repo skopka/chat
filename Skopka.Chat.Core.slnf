@@ -1,0 +1,39 @@
+{
+  "solution": {
+    "path": "Skopka.Chat.sln",
+    "projects": [
+      "samples\\Skopka.Chat.Sample\\Skopka.Chat.Sample.csproj",
+      "src\\Skopka.Chat.Attachments.PostgreSql\\Skopka.Chat.Attachments.PostgreSql.csproj",
+      "src\\Skopka.Chat.Attachments.S3\\Skopka.Chat.Attachments.S3.csproj",
+      "src\\Skopka.Chat.Attachments\\Skopka.Chat.Attachments.csproj",
+      "src\\Skopka.Chat.Client.Http\\Skopka.Chat.Client.Http.csproj",
+      "src\\Skopka.Chat.Client.Storage.Sqlite\\Skopka.Chat.Client.Storage.Sqlite.csproj",
+      "src\\Skopka.Chat.Client.Storage\\Skopka.Chat.Client.Storage.csproj",
+      "src\\Skopka.Chat.Client\\Skopka.Chat.Client.csproj",
+      "src\\Skopka.Chat.Media.FFmpeg\\Skopka.Chat.Media.FFmpeg.csproj",
+      "src\\Skopka.Chat.Media\\Skopka.Chat.Media.csproj",
+      "src\\Skopka.Chat.Persistence.PostgreSql\\Skopka.Chat.Persistence.PostgreSql.csproj",
+      "src\\Skopka.Chat.Protocol\\Skopka.Chat.Protocol.csproj",
+      "src\\Skopka.Chat.Server.AspNetCore\\Skopka.Chat.Server.AspNetCore.csproj",
+      "src\\Skopka.Chat.Server\\Skopka.Chat.Server.csproj",
+      "src\\Skopka.Chat.Transport.Http\\Skopka.Chat.Transport.Http.csproj",
+      "src\\Skopka.Chat.UI.Blazor\\Skopka.Chat.UI.Blazor.csproj",
+      "src\\Skopka.Chat.UI.Core\\Skopka.Chat.UI.Core.csproj",
+      "tests\\Skopka.Chat.Attachments.Tests\\Skopka.Chat.Attachments.Tests.csproj",
+      "tests\\Skopka.Chat.Client.Http.Tests\\Skopka.Chat.Client.Http.Tests.csproj",
+      "tests\\Skopka.Chat.Client.Storage.Tests\\Skopka.Chat.Client.Storage.Tests.csproj",
+      "tests\\Skopka.Chat.Client.Tests\\Skopka.Chat.Client.Tests.csproj",
+      "tests\\Skopka.Chat.FuzzTests\\Skopka.Chat.FuzzTests.csproj",
+      "tests\\Skopka.Chat.Http.IntegrationTests\\Skopka.Chat.Http.IntegrationTests.csproj",
+      "tests\\Skopka.Chat.IntegrationTests\\Skopka.Chat.IntegrationTests.csproj",
+      "tests\\Skopka.Chat.Media.Tests\\Skopka.Chat.Media.Tests.csproj",
+      "tests\\Skopka.Chat.Persistence.PostgreSql.Tests\\Skopka.Chat.Persistence.PostgreSql.Tests.csproj",
+      "tests\\Skopka.Chat.Protocol.Tests\\Skopka.Chat.Protocol.Tests.csproj",
+      "tests\\Skopka.Chat.Server.AspNetCore.Tests\\Skopka.Chat.Server.AspNetCore.Tests.csproj",
+      "tests\\Skopka.Chat.Server.Tests\\Skopka.Chat.Server.Tests.csproj",
+      "tests\\Skopka.Chat.Testing\\Skopka.Chat.Testing.csproj",
+      "tests\\Skopka.Chat.UI.Blazor.Tests\\Skopka.Chat.UI.Blazor.Tests.csproj",
+      "tests\\Skopka.Chat.UI.Core.Tests\\Skopka.Chat.UI.Core.Tests.csproj"
+    ]
+  }
+}

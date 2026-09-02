@@ -117,6 +117,8 @@ dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --fr
 
 Windows CI also builds the unpackaged Windows target and creates both MAUI NuGet packages, then inspects their Android/iOS/Mac Catalyst/Windows assets and restores `tests/Skopka.Chat.Maui.PackageConsumer` from those local files. macOS CI builds iOS simulator and Mac Catalyst targets and performs a trimmed Mac Catalyst publish smoke. A build on only one desktop OS is not the coordinated MAUI release gate.
 
+Dependency audit follows the same platform boundary. Linux audits the thirty-two restored core projects through `Skopka.Chat.Core.slnf`; Windows separately audits the two MAUI packages, their two test projects and the MAUI sample after workload restore. Keep the filter synchronized with non-MAUI solution projects so adding a platform package cannot make Linux load an unsupported workload or silently remove that package from the appropriate audit.
+
 ## Coverage-guided JSON fuzzing
 
 The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of eleven targets: ten shared HTTP contracts (including personal-conversation and device-directory pages) or the authenticated versioned-content decoder (v1 text/reaction, v2 attachments and v3 edits). Successful HTTP values and typed content are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; other exceptions fail the run.
