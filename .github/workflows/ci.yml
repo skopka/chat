@@ -189,11 +189,12 @@ jobs:
       - name: Restore MAUI projects
         shell: pwsh
         run: |
-          dotnet restore src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configfile NuGet.Config
-          dotnet restore src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configfile NuGet.Config
-          dotnet restore tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configfile NuGet.Config
-          dotnet restore tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configfile NuGet.Config
-          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet restore src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configfile NuGet.Config -p:Configuration=Release
+          dotnet restore src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configfile NuGet.Config -p:Configuration=Release
+          dotnet restore tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configfile NuGet.Config -p:Configuration=Release
+          dotnet restore tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configfile NuGet.Config -p:Configuration=Release
+          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config -p:Configuration=Release
 
       - name: Audit MAUI NuGet dependencies
         shell: pwsh
@@ -213,29 +214,33 @@ jobs:
       - name: Build MAUI libraries
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           dotnet build src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-restore
           dotnet build src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-restore
 
       - name: Run MAUI adapter and control tests
         shell: pwsh
         run: |
-          dotnet test --project tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configuration Release --no-restore
-          dotnet test --project tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configuration Release --no-restore
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet test --project tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configuration Release
+          dotnet test --project tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configuration Release
 
       - name: Build MAUI sample for Android and Windows
         shell: pwsh
         run: |
-          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release --no-restore
-          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-windows10.0.19041.0 --configuration Release --no-restore -p:Platform=x64
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-windows10.0.19041.0 --configuration Release -p:Platform=x64
 
       - name: Run trimmed Android AOT smoke build
-        run: dotnet publish samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release --no-restore -p:RuntimeIdentifier=android-arm64 -p:PublishTrimmed=true -p:RunAOTCompilation=true
+        run: dotnet publish samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release -p:RuntimeIdentifier=android-arm64 -p:PublishTrimmed=true -p:RunAOTCompilation=true
 
       - name: Pack MAUI packages
         shell: pwsh
         env:
           PACKAGE_VERSION: ${{ needs.validate.outputs.package_version }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           dotnet pack src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-build --no-restore --output artifacts/packages -p:Version="$env:PACKAGE_VERSION" -p:PackageVersion="$env:PACKAGE_VERSION" -p:ContinuousIntegrationBuild=true
           dotnet pack src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-build --no-restore --output artifacts/packages -p:Version="$env:PACKAGE_VERSION" -p:PackageVersion="$env:PACKAGE_VERSION" -p:ContinuousIntegrationBuild=true
 
@@ -264,11 +269,18 @@ jobs:
             finally { $archive.Dispose() }
           }
 
+      - name: Download core packages for the MAUI consumer
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
+        with:
+          name: skopka-chat-core-nuget-${{ github.sha }}
+          path: artifacts/packages
+
       - name: Restore and build Android package consumer
         shell: pwsh
         env:
           PACKAGE_VERSION: ${{ needs.validate.outputs.package_version }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           dotnet restore tests/Skopka.Chat.Maui.PackageConsumer/Skopka.Chat.Maui.PackageConsumer.csproj --configfile NuGet.Config -p:RestoreAdditionalProjectSources="$env:GITHUB_WORKSPACE/artifacts/packages" -p:ChatPackageVersion="$env:PACKAGE_VERSION"
           dotnet build tests/Skopka.Chat.Maui.PackageConsumer/Skopka.Chat.Maui.PackageConsumer.csproj --configuration Release --no-restore -p:ChatPackageVersion="$env:PACKAGE_VERSION"
 
@@ -277,8 +289,8 @@ jobs:
         with:
           name: skopka-chat-maui-nuget-${{ github.sha }}
           path: |
-            artifacts/packages/*.nupkg
-            artifacts/packages/*.snupkg
+            artifacts/packages/Skopka.Chat.Client.Maui.*nupkg
+            artifacts/packages/Skopka.Chat.UI.Maui.*nupkg
           if-no-files-found: error
           retention-days: 14
 
@@ -303,10 +315,8 @@ jobs:
 
       - name: Build iOS and Mac Catalyst sample
         run: |
-          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config -p:TargetFramework=net10.0-ios -p:RuntimeIdentifier=iossimulator-x64
-          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-ios --configuration Release --no-restore -p:RuntimeIdentifier=iossimulator-x64
-          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config -p:TargetFramework=net10.0-maccatalyst -p:RuntimeIdentifier=maccatalyst-x64
-          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release --no-restore -p:RuntimeIdentifier=maccatalyst-x64
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-ios --configuration Release -p:RuntimeIdentifier=iossimulator-x64
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release -p:RuntimeIdentifier=maccatalyst-x64
 
       - name: Run trimmed Mac Catalyst smoke build
         run: dotnet publish samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release --no-restore -p:RuntimeIdentifier=maccatalyst-x64 -p:PublishTrimmed=true -p:RunAOTCompilation=false
