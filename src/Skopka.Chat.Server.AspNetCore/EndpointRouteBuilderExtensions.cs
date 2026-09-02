@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Buffers.Binary;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -43,6 +44,9 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         group.MapGet($"{SkopkaChatHttpRoutes.Devices}/{{deviceId:guid}}", GetDeviceAsync);
         group.MapPost($"{SkopkaChatHttpRoutes.Devices}/{{deviceId:guid}}/revocation", RevokeDeviceAsync);
         group.MapPost(SkopkaChatHttpRoutes.Conversations, CreateConversationAsync);
+        group.MapPost(SkopkaChatHttpRoutes.PersonalConversation, GetOrCreateConversationAsync);
+        group.MapGet(SkopkaChatHttpRoutes.Conversations, ListConversationsAsync);
+        group.MapGet($"{SkopkaChatHttpRoutes.Conversations}/{{conversationId:guid}}/devices", ListConversationDevicesAsync);
         group.MapPost(SkopkaChatHttpRoutes.Envelopes, SubmitEnvelopeAsync);
         group.MapGet(SkopkaChatHttpRoutes.Deliveries, GetDeliveriesAsync);
         group.MapPost($"{SkopkaChatHttpRoutes.Deliveries}/{{messageId:guid}}/acknowledgements", AcknowledgeAsync);
@@ -412,6 +416,137 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         }
     }
 
+    private static async Task<IResult> GetOrCreateConversationAsync(
+        GetOrCreateConversationRequest request,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        try
+        {
+            var conversation = await engine.GetOrCreateConversationAsync(
+                ownership.Value.Identity.UserId,
+                new UserId(request.PeerUserId),
+                timeProvider.GetUtcNow(),
+                cancellationToken).ConfigureAwait(false);
+            return Results.Ok(ToResponse(conversation));
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+        catch (ChatServerException)
+        {
+            return ConflictProblem();
+        }
+    }
+
+    private static async Task<IResult> ListConversationsAsync(
+        string? cursor,
+        int? take,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        if (!TryDecodeConversationCursor(cursor, out var decodedCursor))
+        {
+            return InvalidRequestProblem();
+        }
+
+        try
+        {
+            var page = await engine.ListConversationsAsync(
+                ownership.Value.Identity.UserId,
+                decodedCursor,
+                take ?? 50,
+                cancellationToken).ConfigureAwait(false);
+            return Results.Ok(new ConversationDirectoryResponse(
+                page.Items.Select(ToResponse).ToArray(),
+                page.NextCursor is { } next ? EncodeConversationCursor(next) : null));
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+    }
+
+    private static async Task<IResult> ListConversationDevicesAsync(
+        Guid conversationId,
+        string? cursor,
+        int? take,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        IConversationRepository conversations,
+        ChatServerEngine engine,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        var conversation = await conversations.GetAsync(
+            new ConversationId(conversationId),
+            cancellationToken).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (!conversation.Contains(ownership.Value.Identity.UserId))
+        {
+            return Results.Forbid();
+        }
+
+        if (!TryDecodeDeviceCursor(cursor, out var decodedCursor))
+        {
+            return InvalidRequestProblem();
+        }
+
+        try
+        {
+            var page = await engine.ListConversationDevicesAsync(
+                ownership.Value.Identity.UserId,
+                conversation.ConversationId,
+                decodedCursor,
+                take ?? 50,
+                cancellationToken).ConfigureAwait(false);
+            return Results.Ok(new DeviceDirectoryResponse(
+                page.Items.Select(PublicDeviceResponse.FromDomain).ToArray(),
+                page.NextCursor is { } next ? EncodeDeviceCursor(next) : null));
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+        catch (ChatServerException)
+        {
+            return Results.Forbid();
+        }
+    }
+
     private static async Task<IResult> SubmitEnvelopeAsync(
         EncryptedEnvelopeDto request,
         HttpContext context,
@@ -570,6 +705,116 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         conversation.FirstUserId.Value,
         conversation.SecondUserId.Value,
         conversation.CreatedAt);
+
+    private static string EncodeConversationCursor(ConversationDirectoryCursor cursor)
+    {
+        Span<byte> bytes = stackalloc byte[24];
+        BinaryPrimitives.WriteInt64BigEndian(bytes, cursor.CreatedAt.UtcTicks);
+        if (!cursor.ConversationId.Value.TryWriteBytes(bytes[8..], bigEndian: true, out var written) || written != 16)
+        {
+            throw new InvalidOperationException("Could not encode a conversation cursor.");
+        }
+
+        return ToBase64Url(bytes);
+    }
+
+    private static bool TryDecodeConversationCursor(
+        string? value,
+        out ConversationDirectoryCursor? cursor)
+    {
+        cursor = null;
+        if (value is null)
+        {
+            return true;
+        }
+
+        if (!TryFromBase64Url(value, 24, out var bytes))
+        {
+            return false;
+        }
+
+        var ticks = BinaryPrimitives.ReadInt64BigEndian(bytes);
+        try
+        {
+            var conversationId = new Guid(bytes.AsSpan(8), bigEndian: true);
+            if (ticks <= 0 || conversationId == Guid.Empty)
+            {
+                return false;
+            }
+
+            cursor = new ConversationDirectoryCursor(
+                new DateTimeOffset(ticks, TimeSpan.Zero),
+                new ConversationId(conversationId));
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    private static string EncodeDeviceCursor(DeviceDirectoryCursor cursor)
+    {
+        Span<byte> bytes = stackalloc byte[32];
+        if (!cursor.UserId.Value.TryWriteBytes(bytes, bigEndian: true, out var firstWritten) || firstWritten != 16 ||
+            !cursor.DeviceId.Value.TryWriteBytes(bytes[16..], bigEndian: true, out var secondWritten) || secondWritten != 16)
+        {
+            throw new InvalidOperationException("Could not encode a device cursor.");
+        }
+
+        return ToBase64Url(bytes);
+    }
+
+    private static bool TryDecodeDeviceCursor(string? value, out DeviceDirectoryCursor? cursor)
+    {
+        cursor = null;
+        if (value is null)
+        {
+            return true;
+        }
+
+        if (!TryFromBase64Url(value, 32, out var bytes))
+        {
+            return false;
+        }
+
+        var userId = new Guid(bytes.AsSpan(0, 16), bigEndian: true);
+        var deviceId = new Guid(bytes.AsSpan(16, 16), bigEndian: true);
+        if (userId == Guid.Empty || deviceId == Guid.Empty)
+        {
+            return false;
+        }
+
+        cursor = new DeviceDirectoryCursor(new UserId(userId), new DeviceId(deviceId));
+        return true;
+    }
+
+    private static string ToBase64Url(ReadOnlySpan<byte> bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    private static bool TryFromBase64Url(string value, int expectedBytes, out byte[] bytes)
+    {
+        bytes = [];
+        if (value.Length is 0 or > SkopkaChatHttpLimits.MaxCursorCharacters ||
+            value.Any(character =>
+                !(character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_')))
+        {
+            return false;
+        }
+
+        var padded = value.Replace('-', '+').Replace('_', '/');
+        padded += new string('=', (4 - padded.Length % 4) % 4);
+        try
+        {
+            bytes = Convert.FromBase64String(padded);
+            return bytes.Length == expectedBytes && string.Equals(ToBase64Url(bytes), value, StringComparison.Ordinal);
+        }
+        catch (FormatException)
+        {
+            bytes = [];
+            return false;
+        }
+    }
 
     private static IResult InvalidRequestProblem() => Results.Problem(
         statusCode: StatusCodes.Status400BadRequest,

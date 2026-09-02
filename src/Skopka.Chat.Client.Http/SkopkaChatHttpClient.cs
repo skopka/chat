@@ -13,7 +13,11 @@ using Skopka.Chat.Transport.Http;
 namespace Skopka.Chat.Client.Http;
 
 /// <summary>Authenticated HTTP API client and <see cref="IChatTransport"/> implementation.</summary>
-public sealed class SkopkaChatHttpClient : IChatTransport, IEncryptedAttachmentUploader
+public sealed class SkopkaChatHttpClient :
+    IChatTransport,
+    IEncryptedAttachmentUploader,
+    IChatConversationDirectory,
+    IRecipientDeviceDirectory
 {
     private readonly HttpClient _httpClient;
     private readonly IAccessTokenProvider _accessTokens;
@@ -116,6 +120,125 @@ public sealed class SkopkaChatHttpClient : IChatTransport, IEncryptedAttachmentU
         }
 
         return result;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChatConversationInfo> GetOrCreatePersonalConversationAsync(
+        UserId peerUserId,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(peerUserId.Value, nameof(peerUserId));
+        if (peerUserId == _authenticatedUserId)
+        {
+            throw new ArgumentException("A personal conversation requires a different peer.", nameof(peerUserId));
+        }
+
+        var payload = new GetOrCreateConversationRequest(peerUserId.Value);
+        using var response = await SendWithRetryAsync(
+            () => CreateJsonRequest(
+                HttpMethod.Post,
+                SkopkaChatHttpRoutes.PersonalConversation,
+                payload,
+                SkopkaChatHttpJsonContext.Default.GetOrCreateConversationRequest),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        var result = await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.PersonalConversationResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false);
+        if (result.CreatedAt == default ||
+            !HasExactParticipants(result, _authenticatedUserId.Value, peerUserId.Value))
+        {
+            throw InvalidResponse();
+        }
+
+        return ToConversationInfo(result);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChatConversationPage> ListConversationsAsync(
+        string? cursor = null,
+        int maximumCount = 50,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateDirectoryRequest(cursor, maximumCount);
+        using var response = await SendWithRetryAsync(
+            () => new HttpRequestMessage(
+                HttpMethod.Get,
+                BuildUri(BuildPagedRoute(SkopkaChatHttpRoutes.Conversations, cursor, maximumCount))),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        var page = await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.ConversationDirectoryResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false);
+        if (page.Items is null || page.Items.Length > maximumCount || !IsValidCursor(page.NextCursor))
+        {
+            throw InvalidResponse();
+        }
+
+        var result = new ChatConversationInfo[page.Items.Length];
+        var seen = new HashSet<Guid>();
+        for (var index = 0; index < page.Items.Length; index++)
+        {
+            var item = page.Items[index] ?? throw InvalidResponse();
+            if (!seen.Add(item.ConversationId) || item.CreatedAt == default ||
+                !HasParticipant(item, _authenticatedUserId.Value))
+            {
+                throw InvalidResponse();
+            }
+
+            result[index] = ToConversationInfo(item);
+        }
+
+        return new ChatConversationPage(result, page.NextCursor);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChatDevicePage> ListConversationDevicesAsync(
+        ConversationId conversationId,
+        string? cursor = null,
+        int maximumCount = 50,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(conversationId.Value, nameof(conversationId));
+        ValidateDirectoryRequest(cursor, maximumCount);
+        using var response = await SendWithRetryAsync(
+            () => new HttpRequestMessage(
+                HttpMethod.Get,
+                BuildUri(BuildPagedRoute(
+                    SkopkaChatHttpRoutes.ConversationDevices(conversationId.Value),
+                    cursor,
+                    maximumCount))),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        var page = await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.DeviceDirectoryResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false);
+        if (page.Items is null || page.Items.Length > maximumCount || !IsValidCursor(page.NextCursor))
+        {
+            throw InvalidResponse();
+        }
+
+        var result = new PublicDevice[page.Items.Length];
+        var seen = new HashSet<DeviceId>();
+        for (var index = 0; index < page.Items.Length; index++)
+        {
+            var item = page.Items[index] ?? throw InvalidResponse();
+            var device = ToPublicDevice(item);
+            if (device.IsRevoked || !seen.Add(device.DeviceId))
+            {
+                throw InvalidResponse();
+            }
+
+            result[index] = device;
+        }
+
+        return new ChatDevicePage(result, page.NextCursor);
     }
 
     /// <summary>Revokes one device owned by the authenticated user.</summary>
@@ -657,6 +780,49 @@ public sealed class SkopkaChatHttpClient : IChatTransport, IEncryptedAttachmentU
         first != second &&
         ((conversation.FirstUserId == first && conversation.SecondUserId == second) ||
          (conversation.FirstUserId == second && conversation.SecondUserId == first));
+
+    private static bool HasParticipant(PersonalConversationResponse conversation, Guid userId) =>
+        conversation.FirstUserId == userId || conversation.SecondUserId == userId;
+
+    private static ChatConversationInfo ToConversationInfo(PersonalConversationResponse response)
+    {
+        if (response.ConversationId == Guid.Empty || response.FirstUserId == Guid.Empty ||
+            response.SecondUserId == Guid.Empty || response.FirstUserId == response.SecondUserId ||
+            response.CreatedAt == default)
+        {
+            throw InvalidResponse();
+        }
+
+        return new ChatConversationInfo(
+            new ConversationId(response.ConversationId),
+            new UserId(response.FirstUserId),
+            new UserId(response.SecondUserId),
+            response.CreatedAt);
+    }
+
+    private static string BuildPagedRoute(string route, string? cursor, int maximumCount) =>
+        cursor is null
+            ? $"{route}?take={maximumCount}"
+            : $"{route}?take={maximumCount}&cursor={Uri.EscapeDataString(cursor)}";
+
+    private static void ValidateDirectoryRequest(string? cursor, int maximumCount)
+    {
+        if (maximumCount is < 1 or > SkopkaChatHttpLimits.MaxDirectoryPageSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount));
+        }
+
+        if (!IsValidCursor(cursor))
+        {
+            throw new ArgumentException("The directory cursor is invalid.", nameof(cursor));
+        }
+    }
+
+    private static bool IsValidCursor(string? cursor) =>
+        cursor is null ||
+        (cursor.Length is > 0 and <= SkopkaChatHttpLimits.MaxCursorCharacters &&
+            cursor.All(character =>
+                character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_'));
 
     private static PublicDevice ToPublicDevice(PublicDeviceResponse response)
     {

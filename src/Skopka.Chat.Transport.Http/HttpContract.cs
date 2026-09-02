@@ -14,6 +14,9 @@ public static class SkopkaChatHttpRoutes
     /// <summary>Personal-conversation collection.</summary>
     public const string Conversations = "/conversations";
 
+    /// <summary>Idempotent personal-conversation lookup/creation endpoint.</summary>
+    public const string PersonalConversation = "/conversations/personal";
+
     /// <summary>Encrypted-envelope submission endpoint.</summary>
     public const string Envelopes = "/envelopes";
 
@@ -28,6 +31,10 @@ public static class SkopkaChatHttpRoutes
 
     /// <summary>Returns the revocation route for one device.</summary>
     public static string DeviceRevocation(Guid deviceId) => $"{Device(deviceId)}/revocation";
+
+    /// <summary>Returns the active participant-device directory route for a conversation.</summary>
+    public static string ConversationDevices(Guid conversationId) =>
+        $"{Conversations}/{conversationId:D}/devices";
 
     /// <summary>Returns the acknowledgement route for one encrypted message.</summary>
     public static string Acknowledgement(Guid messageId) =>
@@ -61,6 +68,12 @@ public static class SkopkaChatHttpLimits
 
     /// <summary>Maximum buffered JSON response for a full delivery batch.</summary>
     public const int MaxDeliveryResponseBytes = 10 * 1024 * 1024;
+
+    /// <summary>Largest accepted opaque pagination cursor.</summary>
+    public const int MaxCursorCharacters = 64;
+
+    /// <summary>Largest conversation or participant-device directory page.</summary>
+    public const int MaxDirectoryPageSize = 100;
 }
 
 /// <summary>Public key material supplied while registering the caller's authenticated device.</summary>
@@ -84,6 +97,9 @@ public sealed record RegisterDeviceRequest(
 
 /// <summary>Creates a personal conversation containing the authenticated user and one peer.</summary>
 public sealed record CreateConversationRequest(Guid ConversationId, Guid PeerUserId);
+
+/// <summary>Gets or creates a personal conversation using only the authenticated user and peer ID.</summary>
+public sealed record GetOrCreateConversationRequest(Guid PeerUserId);
 
 /// <summary>Server-visible public device data returned by the authenticated directory.</summary>
 public sealed record PublicDeviceResponse(
@@ -131,6 +147,16 @@ public sealed record PersonalConversationResponse(
     Guid FirstUserId,
     Guid SecondUserId,
     DateTimeOffset CreatedAt);
+
+/// <summary>Bounded page of conversation metadata without message plaintext or previews.</summary>
+public sealed record ConversationDirectoryResponse(
+    PersonalConversationResponse[] Items,
+    string? NextCursor);
+
+/// <summary>Bounded page of active devices for authorized conversation participants.</summary>
+public sealed record DeviceDirectoryResponse(
+    PublicDeviceResponse[] Items,
+    string? NextCursor);
 
 /// <summary>Encrypted protocol envelope accepted and returned by the transport.</summary>
 public sealed record EncryptedEnvelopeDto(

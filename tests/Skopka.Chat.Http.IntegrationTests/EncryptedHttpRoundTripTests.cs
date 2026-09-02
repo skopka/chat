@@ -108,6 +108,14 @@ public sealed class EncryptedHttpRoundTripTests
             await aliceApi.RegisterDeviceAsync(alice);
             await bobApi.RegisterDeviceAsync(bob);
             await aliceApi.CreateConversationAsync(bob.UserId, conversationId);
+            var existingConversation = await aliceApi.GetOrCreatePersonalConversationAsync(bob.UserId);
+            Assert.Equal(conversationId, existingConversation.ConversationId);
+            var conversationPage = await aliceApi.ListConversationsAsync(maximumCount: 10);
+            Assert.Contains(conversationPage.Items, item => item.ConversationId == conversationId);
+            var devicePage = await aliceApi.ListConversationDevicesAsync(conversationId, maximumCount: 10);
+            Assert.Equal(
+                new[] { alice.DeviceId, bob.DeviceId }.OrderBy(item => item.Value),
+                devicePage.Items.Select(item => item.DeviceId).OrderBy(item => item.Value));
             var bobFromDirectory = Assert.IsType<PublicDevice>(
                 await aliceApi.GetDeviceAsync(bob.DeviceId));
             const string plaintext = "PostgreSQL must never see this marker: 7E3CC90B.";

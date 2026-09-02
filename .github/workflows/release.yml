@@ -131,7 +131,7 @@ jobs:
           -p:PackageVersion="$RELEASE_VERSION"
           -p:ContinuousIntegrationBuild=true
 
-      - name: Verify package set
+      - name: Verify core package set
         shell: bash
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -191,7 +191,203 @@ jobs:
           --no-restore
           -p:ChatPackageVersion="$RELEASE_VERSION"
 
-      - name: Upload release packages
+      - name: Upload core release packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-core-packages
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+          if-no-files-found: error
+          retention-days: 30
+
+  validate-maui:
+    name: Validate MAUI release packages
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Locate Visual Studio Appx build tools
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          $appxTools = Get-ChildItem "$installation\MSBuild\Microsoft\VisualStudio" -Filter Microsoft.Build.AppxPackage.dll -Recurse |
+            Select-Object -First 1 -ExpandProperty DirectoryName
+          if (-not $appxTools) { throw 'Visual Studio Appx build tools were not found.' }
+          "AppxMSBuildToolsPath=$appxTools\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Restore MAUI workloads
+        run: dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
+
+      - name: Restore MAUI release projects
+        shell: pwsh
+        run: |
+          dotnet restore src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configfile NuGet.Config
+          dotnet restore src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configfile NuGet.Config
+          dotnet restore tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configfile NuGet.Config
+          dotnet restore tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configfile NuGet.Config
+          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config
+
+      - name: Build and test MAUI release projects
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          dotnet build src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-restore -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION"
+          dotnet build src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-restore -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION"
+          dotnet test --project tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configuration Release --no-restore
+          dotnet test --project tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configuration Release --no-restore
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release --no-restore
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-windows10.0.19041.0 --configuration Release --no-restore -p:Platform=x64
+          dotnet publish samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release --no-restore -p:RuntimeIdentifier=android-arm64 -p:PublishTrimmed=true -p:RunAOTCompilation=true
+
+      - name: Pack MAUI release projects
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          dotnet pack src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-build --no-restore --output artifacts/packages -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION" -p:ContinuousIntegrationBuild=true
+          dotnet pack src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-build --no-restore --output artifacts/packages -p:Version="$env:RELEASE_VERSION" -p:PackageVersion="$env:RELEASE_VERSION" -p:ContinuousIntegrationBuild=true
+
+      - name: Verify MAUI package assets and consumer
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $frameworks = @('net10.0-android', 'net10.0-ios', 'net10.0-maccatalyst', 'net10.0-windows10.0.19041')
+          foreach ($packageId in @('Skopka.Chat.Client.Maui', 'Skopka.Chat.UI.Maui')) {
+            foreach ($extension in @('nupkg', 'snupkg')) {
+              $path = "artifacts/packages/$packageId.$env:RELEASE_VERSION.$extension"
+              if (-not (Test-Path -LiteralPath $path)) { throw "Expected package '$path' was not produced." }
+            }
+            $archive = [IO.Compression.ZipFile]::OpenRead("artifacts/packages/$packageId.$env:RELEASE_VERSION.nupkg")
+            try {
+              foreach ($framework in $frameworks) {
+                $frameworkPattern = [regex]::Escape($framework)
+                if (-not ($archive.Entries.FullName -match "^lib/$frameworkPattern[^/]*/[^/]+\.dll$")) {
+                  throw "$packageId is missing a compiled $framework asset."
+                }
+              }
+            }
+            finally { $archive.Dispose() }
+          }
+          dotnet restore tests/Skopka.Chat.Maui.PackageConsumer/Skopka.Chat.Maui.PackageConsumer.csproj --configfile NuGet.Config -p:RestoreAdditionalProjectSources="$env:GITHUB_WORKSPACE/artifacts/packages" -p:ChatPackageVersion="$env:RELEASE_VERSION"
+          dotnet build tests/Skopka.Chat.Maui.PackageConsumer/Skopka.Chat.Maui.PackageConsumer.csproj --configuration Release --no-restore -p:ChatPackageVersion="$env:RELEASE_VERSION"
+
+      - name: Upload MAUI release packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-maui-packages
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+          if-no-files-found: error
+          retention-days: 30
+
+  validate-maui-apple:
+    name: Validate MAUI iOS and Mac Catalyst release builds
+    needs: validate
+    runs-on: macos-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore MAUI workloads and sample
+        run: |
+          dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
+          dotnet restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --configfile NuGet.Config
+
+      - name: Build iOS and Mac Catalyst release sample
+        run: |
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-ios --configuration Release --no-restore -p:RuntimeIdentifier=iossimulator-x64
+          dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release --no-restore -p:RuntimeIdentifier=maccatalyst-x64
+
+      - name: Run trimmed Mac Catalyst release smoke build
+        run: dotnet publish samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-maccatalyst --configuration Release --no-restore -p:RuntimeIdentifier=maccatalyst-x64 -p:PublishTrimmed=true -p:RunAOTCompilation=false
+
+  combine-packages:
+    name: Verify coordinated release set
+    needs:
+      - validate
+      - validate-maui
+      - validate-maui-apple
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download core release packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
+        with:
+          name: release-core-packages
+          path: artifacts/packages
+
+      - name: Download MAUI release packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.0
+        with:
+          name: release-maui-packages
+          path: artifacts/packages
+
+      - name: Verify exact coordinated set
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          PACKAGE_IDS=(
+            "Skopka.Chat.Protocol"
+            "Skopka.Chat.Attachments"
+            "Skopka.Chat.Attachments.PostgreSql"
+            "Skopka.Chat.Attachments.S3"
+            "Skopka.Chat.Client"
+            "Skopka.Chat.Client.Storage"
+            "Skopka.Chat.Client.Storage.Sqlite"
+            "Skopka.Chat.Client.Maui"
+            "Skopka.Chat.Media"
+            "Skopka.Chat.Media.FFmpeg"
+            "Skopka.Chat.UI.Core"
+            "Skopka.Chat.UI.Blazor"
+            "Skopka.Chat.UI.Maui"
+            "Skopka.Chat.Server"
+            "Skopka.Chat.Transport.Http"
+            "Skopka.Chat.Client.Http"
+            "Skopka.Chat.Persistence.PostgreSql"
+            "Skopka.Chat.Server.AspNetCore"
+          )
+
+          for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
+            test -f "artifacts/packages/${PACKAGE_ID}.${RELEASE_VERSION}.nupkg"
+            test -f "artifacts/packages/${PACKAGE_ID}.${RELEASE_VERSION}.snupkg"
+          done
+
+          NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.nupkg" | wc -l)
+          SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.snupkg" | wc -l)
+          if [[ "$NUPKG_COUNT" -ne 18 || "$SNUPKG_COUNT" -ne 18 ]]; then
+            echo "Expected 18 packages and 18 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+            exit 1
+          fi
+
+      - name: Upload coordinated release packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-packages
@@ -203,7 +399,9 @@ jobs:
 
   publish-nuget:
     name: Publish coordinated NuGet set
-    needs: validate
+    needs:
+      - validate
+      - combine-packages
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: release
@@ -239,10 +437,12 @@ jobs:
             "skopka.chat.client"
             "skopka.chat.client.storage"
             "skopka.chat.client.storage.sqlite"
+            "skopka.chat.client.maui"
             "skopka.chat.media"
             "skopka.chat.media.ffmpeg"
             "skopka.chat.ui.core"
             "skopka.chat.ui.blazor"
+            "skopka.chat.ui.maui"
             "skopka.chat.transport.http"
             "skopka.chat.client.http"
             "skopka.chat.server"
@@ -280,8 +480,10 @@ jobs:
             "Skopka.Chat.Client.Storage.Sqlite"
             "Skopka.Chat.Media"
             "Skopka.Chat.Media.FFmpeg"
+            "Skopka.Chat.Client.Maui"
             "Skopka.Chat.UI.Core"
             "Skopka.Chat.UI.Blazor"
+            "Skopka.Chat.UI.Maui"
             "Skopka.Chat.Server"
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
@@ -311,10 +513,12 @@ jobs:
             "skopka.chat.client"
             "skopka.chat.client.storage"
             "skopka.chat.client.storage.sqlite"
+            "skopka.chat.client.maui"
             "skopka.chat.media"
             "skopka.chat.media.ffmpeg"
             "skopka.chat.ui.core"
             "skopka.chat.ui.blazor"
+            "skopka.chat.ui.maui"
             "skopka.chat.transport.http"
             "skopka.chat.client.http"
             "skopka.chat.server"

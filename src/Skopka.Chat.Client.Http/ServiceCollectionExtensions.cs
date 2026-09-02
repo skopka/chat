@@ -23,6 +23,10 @@ public static class SkopkaChatHttpClientServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddTransient<Skopka.Chat.Client.IChatTransport>(provider =>
             provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
+        services.TryAddTransient<Skopka.Chat.Client.IChatConversationDirectory>(provider =>
+            provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
+        services.TryAddTransient<Skopka.Chat.Client.IRecipientDeviceDirectory>(provider =>
+            provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
         return services
             .AddHttpClient<Skopka.Chat.Client.Http.SkopkaChatHttpClient>(client =>
             {

@@ -24,6 +24,7 @@ public sealed class ChatViewModel
     private long _draftRevision;
     private bool _isSendingDraft;
     private bool _hasCommandError;
+    private ChatContent? _pendingDraftContent;
 
     /// <summary>Creates presentation state for exactly one conversation and authenticated user.</summary>
     public ChatViewModel(
@@ -224,6 +225,7 @@ public sealed class ChatViewModel
             if (changed)
             {
                 _draftText = value;
+                _pendingDraftContent = null;
                 _draftRevision++;
                 _hasCommandError = false;
             }
@@ -256,6 +258,7 @@ public sealed class ChatViewModel
             {
                 RestoreComposerAfterEditCore();
                 _replyToContentId = contentId;
+                _pendingDraftContent = null;
                 _draftRevision++;
                 _hasCommandError = false;
             }
@@ -311,6 +314,7 @@ public sealed class ChatViewModel
                 _editTargetContentId = contentId;
                 _draftText = editableValue;
                 _replyToContentId = null;
+                _pendingDraftContent = null;
                 _draftRevision++;
                 _hasCommandError = false;
             }
@@ -332,6 +336,7 @@ public sealed class ChatViewModel
             if (changed)
             {
                 RestoreComposerAfterEditCore();
+                _pendingDraftContent = null;
                 _draftRevision++;
                 _hasCommandError = false;
             }
@@ -353,6 +358,7 @@ public sealed class ChatViewModel
             if (changed)
             {
                 _replyToContentId = null;
+                _pendingDraftContent = null;
                 _draftRevision++;
             }
         }
@@ -398,7 +404,7 @@ public sealed class ChatViewModel
                 return false;
             }
 
-            content = CreateComposerContent();
+            content = _pendingDraftContent ??= CreateComposerContent();
             revision = _draftRevision;
             _isSendingDraft = true;
             _hasCommandError = false;
@@ -441,6 +447,7 @@ public sealed class ChatViewModel
                     _replyToContentId = null;
                 }
 
+                _pendingDraftContent = null;
                 _draftRevision++;
             }
 

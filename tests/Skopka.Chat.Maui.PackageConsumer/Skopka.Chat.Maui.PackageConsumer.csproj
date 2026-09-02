@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <UseMaui>true</UseMaui>
+    <OutputType>Library</OutputType>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.13.0</ChatPackageVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.1" />
+    <PackageReference Include="Skopka.Chat.Client.Maui" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.UI.Maui" Version="$(ChatPackageVersion)" />
+  </ItemGroup>
+
+</Project>

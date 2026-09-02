@@ -80,6 +80,79 @@ public sealed class ServerEngineTests
         Assert.Equal([firstId, secondId], batch.Select(item => item.Envelope.MessageId));
     }
 
+    [Fact]
+    public async Task Concurrent_get_or_create_returns_one_canonical_personal_conversation()
+    {
+        var store = new InMemoryServerStore();
+        var engine = new ChatServerEngine(store, store, store);
+        var first = UserId.New();
+        var second = UserId.New();
+        var now = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+
+        var conversations = await Task.WhenAll(Enumerable.Range(0, 64).Select(index => Task.Run(async () =>
+            index % 2 == 0
+                ? await engine.GetOrCreateConversationAsync(first, second, now)
+                : await engine.GetOrCreateConversationAsync(second, first, now))));
+
+        Assert.Single(conversations.Select(static item => item.ConversationId).Distinct());
+        Assert.All(conversations, conversation =>
+        {
+            Assert.True(conversation.Contains(first));
+            Assert.True(conversation.Contains(second));
+        });
+    }
+
+    [Fact]
+    public async Task Device_directory_requires_membership_and_excludes_revoked_devices()
+    {
+        var fixture = await ServerFixture.CreateAsync();
+        var stranger = UserId.New();
+
+        await Assert.ThrowsAsync<ChatServerException>(async () =>
+            await fixture.Engine.ListConversationDevicesAsync(stranger, fixture.ConversationId, null, 10));
+        Assert.True(await fixture.Engine.RevokeDeviceAsync(fixture.Bob.DeviceId, fixture.Now.AddMinutes(1)));
+
+        var page = await fixture.Engine.ListConversationDevicesAsync(
+            fixture.Alice.UserId,
+            fixture.ConversationId,
+            null,
+            10);
+
+        Assert.Equal(fixture.Alice.DeviceId, Assert.Single(page.Items).DeviceId);
+        Assert.Null(page.NextCursor);
+    }
+
+    [Fact]
+    public async Task Envelope_to_active_sibling_device_is_allowed_for_multi_device_sync()
+    {
+        var fixture = await ServerFixture.CreateAsync();
+        var sibling = ServerFixture.Device(
+            fixture.Alice.UserId,
+            DeviceId.New(),
+            KeyId.New(),
+            120,
+            fixture.Now);
+        await fixture.Engine.RegisterDeviceAsync(sibling);
+        var source = fixture.CreateEnvelope();
+        var envelope = new EncryptedEnvelope(
+            source.ProtocolVersion,
+            MessageId.New(),
+            source.ConversationId,
+            source.SenderDeviceId,
+            sibling.DeviceId,
+            source.SenderSigningKeyId,
+            sibling.KeyId,
+            source.SentAt,
+            source.ExpiresAt,
+            source.EphemeralPublicKey.Span,
+            source.Nonce.Span,
+            source.Ciphertext.Span,
+            source.AuthenticationTag.Span,
+            source.Signature.Span);
+
+        Assert.Equal(SubmitEnvelopeResult.Accepted, await fixture.Engine.SubmitAsync(envelope, fixture.Now));
+    }
+
     private static EncryptedEnvelope Clone(EncryptedEnvelope source, byte[] ciphertext) => new(
         source.ProtocolVersion,
         source.MessageId,
@@ -143,7 +216,7 @@ public sealed class ServerEngineTests
             Enumerable.Repeat((byte)7, 16).ToArray(),
             Enumerable.Repeat((byte)9, 64).ToArray());
 
-        private static PublicDevice Device(
+        internal static PublicDevice Device(
             UserId userId,
             DeviceId deviceId,
             KeyId keyId,

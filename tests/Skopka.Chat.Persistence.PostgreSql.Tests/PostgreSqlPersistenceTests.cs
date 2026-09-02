@@ -30,6 +30,49 @@ public sealed class PostgreSqlPersistenceTests
 
         Assert.Contains("202608310001_InitialEncryptedChatStorage", migrations);
         Assert.Contains("202609010002_DeterministicPendingDeliveryOrder", migrations);
+        Assert.Contains("202609020004_UniquePersonalConversations", migrations);
+    }
+
+    [Fact]
+    public async Task Concurrent_get_or_create_persists_one_personal_conversation()
+    {
+        var connectionString = await GetPostgreSqlConnectionStringOrSkipAsync();
+        await using (var migrationContext = CreateContext(connectionString))
+        {
+            await migrationContext.Database.MigrateAsync();
+        }
+
+        var firstUserId = UserId.New();
+        var secondUserId = UserId.New();
+        var now = new DateTimeOffset(2026, 9, 2, 12, 0, 0, TimeSpan.Zero);
+        var start = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = Enumerable.Range(0, 8)
+            .Select(_ => GetOrCreateAfterSignalAsync(
+                connectionString,
+                firstUserId,
+                secondUserId,
+                now,
+                start.Task))
+            .ToArray();
+
+        start.SetResult(true);
+        var conversations = await Task.WhenAll(attempts);
+
+        Assert.Single(conversations.Select(item => item.ConversationId).Distinct());
+        await using var verificationContext = CreateContext(connectionString);
+        try
+        {
+            var repository = (IConversationRepository)new PostgreSqlChatStore(verificationContext);
+            var stored = Assert.IsType<PersonalConversation>(
+                await repository.GetByParticipantsAsync(secondUserId, firstUserId));
+            Assert.Equal(conversations[0], stored);
+        }
+        finally
+        {
+            var conversationId = conversations[0].ConversationId.Value;
+            await verificationContext.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM conversations WHERE conversation_id = {conversationId}");
+        }
     }
 
     [Fact]
@@ -231,6 +274,21 @@ public sealed class PostgreSqlPersistenceTests
         await using var context = CreateContext(connectionString);
         var repository = (IEnvelopeRepository)new PostgreSqlChatStore(context);
         return await repository.TryAddAsync(envelope, acceptedAt);
+    }
+
+    private static async Task<PersonalConversation> GetOrCreateAfterSignalAsync(
+        string connectionString,
+        UserId firstUserId,
+        UserId secondUserId,
+        DateTimeOffset createdAt,
+        Task start)
+    {
+        await start;
+        await using var context = CreateContext(connectionString);
+        return await CreateEngine(context).GetOrCreateConversationAsync(
+            firstUserId,
+            secondUserId,
+            createdAt);
     }
 
     private static async Task<IReadOnlyList<StoredEnvelope>> ReceiveAfterSignalAsync(

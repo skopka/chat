@@ -13,17 +13,19 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, типизированный encrypted content (ответы, пересылки, реакции, edit events v3, attachment manifest v2), потоковое шифрование файлов, локальная проекция, fingerprints/security codes, `IChatTransport` и дедупликация.
 - `Skopka.Chat.Client.Storage` — durable journal contracts, восстановление проекций и `ChatSyncCoordinator` с порядком verify/decrypt → store → apply → acknowledge.
 - `Skopka.Chat.Client.Storage.Sqlite` — локальный SQLite-журнал проверенных typed events с атомарной дедупликацией `MessageId`; хранит plaintext и требует host-защиты файла БД.
+- `Skopka.Chat.Client.Maui` — адаптеры MAUI `SecureStorage`, lifecycle/session coordination и ограниченная работа с временными plaintext-файлами; зависит от Client/Client.Storage/Media, но не от Server.
 - `Skopka.Chat.Media` — client-side режимы `Auto`/`Media`/`File`, заменяемая подготовка фото/видео и orchestration prepare → encrypt → upload; без server/persistence/UI framework.
 - `Skopka.Chat.Media.FFmpeg` — необязательное локальное JPEG/H.264/AAC преобразование через host-supplied FFmpeg; binary не входит в NuGet-пакет.
 - `Skopka.Chat.UI.Core` — framework-independent `ChatViewModel`, composer/reply/reaction/forward/edit commands и host-owned `IChatContentSender`; без зависимости от Blazor, transport или server.
 - `Skopka.Chat.UI.Blazor` — доступные Blazor-компоненты с CSS variables, локализуемыми строками и заменяемыми message/attachment/composer templates.
+- `Skopka.Chat.UI.Maui` — виртуализированный нативный `CollectionView` с compiled bindings, стабильным diff, темами, templates и host callbacks для файлов/пересылки/paging.
 - `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
 - `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses, потоковая загрузка/расшифровка attachments и ограниченные retries идемпотентных операций; без ссылки на Server.
 - `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.12.0` сохраняет protocol v1 и существующие content v1/v2 bytes, добавляя immutable encrypted edit events v3, durable client event storage и SQLite-адаптер. Серверные storage по-прежнему получают только ciphertext; локальный client journal после успешной E2EE-проверки содержит plaintext. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.13.0` сохраняет protocol v1 и content v1/v2/v3 bytes. Она добавляет уникальный personal-conversation directory, recipient-device discovery, retry-safe multi-device fan-out, durable SQLite outbox/history paging и необязательные MAUI client/UI-пакеты. Серверные storage по-прежнему получают только ciphertext; локальные journal/outbox после E2EE-обработки содержат чувствительные endpoint-данные и требуют host-защиты. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
 
 ## Документация
 
@@ -32,6 +34,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - [Руководство по encrypted attachments](docs/attachments.md)
 - [Подготовка фото и видео](docs/media.md)
 - [Локальная история и синхронизация](docs/client-storage.md)
+- [Интеграция .NET MAUI](docs/maui.md)
 - [Руководство разработчика](docs/development.md)
 - [Руководство по выпуску](docs/releasing.md)
 - [Инструкции для coding-агентов](AGENTS.md)
@@ -152,7 +155,7 @@ if (stored is AttachmentStoreResult.Stored or AttachmentStoreResult.Duplicate)
 
 ## Адаптируемый UI
 
-`Skopka.Chat.UI.Core` хранит только presentation state одного диалога. Приложение реализует `IChatContentSender`: шифрует один `ChatContent`, создаёт отдельный `MessageId` для каждого устройства, отправляет конверты и возвращает подтверждённый локальный echo без текста удалённой ошибки. Входящие данные применяются только после `ChatReceiver.ReceiveContentAsync`:
+`Skopka.Chat.UI.Core` хранит только presentation state одного диалога. Для стандартного multi-device пути приложение компонует `ChatMultiDeviceSender` и `MultiDeviceChatContentSender`: движок получает авторизованный список peer/sibling devices, сохраняет точный fan-out plan до сети, создаёт отдельный `MessageId` для каждого устройства и возвращает локальный echo. `IChatContentSender` остаётся заменяемой host-границей. Входящие данные применяются только после `ChatReceiver.ReceiveContentAsync` либо через durable `ChatSyncCoordinator`:
 
 ```csharp
 var chat = new ChatViewModel(conversationId, currentUserId, myContentSender);
@@ -185,6 +188,8 @@ await chat.TrySendDraftAsync();
 ```
 
 Цвета, размеры и типографика задаются CSS custom properties с префиксом `--skopka-chat-*`; строки заменяются через `SkopkaChatStrings`, quick reactions — через `ReactionChoices`. Полное руководство и границы безопасности находятся в [docs/ui.md](docs/ui.md).
+
+Для MAUI используйте `SkopkaChatView` из `Skopka.Chat.UI.Maui`. Он предоставляет virtualized timeline, стабильное добавление/обновление элементов, paging callback, собственные/чужие bubbles и полностью заменяемые message/attachment/composer/empty templates. `Skopka.Chat.Client.Maui` добавляет endpoint-адаптеры, но authentication, навигация, push и политика хранения остаются у приложения. Полный composition root находится в [`samples/Skopka.Chat.Maui.Sample`](samples/Skopka.Chat.Maui.Sample), а требования платформ — в [docs/maui.md](docs/maui.md).
 
 ## HTTP-клиент
 
@@ -304,12 +309,12 @@ dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 
 Каждая тестовая сборка получает собственный контейнер и удаляет его после выполнения. Для внешней одноразовой БД задайте `SKOPKA_CHAT_POSTGRES`; эта переменная имеет приоритет. Без connection string и флага Testcontainers DB-тесты корректно пропускаются; `SKOPKA_CHAT_POSTGRES_REQUIRED=true` превращает такой пропуск или недоступный Docker в ошибку release-gate.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) последовательно запускает все DB-gates через pinned PostgreSQL Testcontainers, выполняет hostile-input suite, Release build/test/pack и сохраняет все шестнадцать `.nupkg` как artifact. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из восемнадцати пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает шестнадцать `.nupkg` вместе с шестнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает восемнадцать `.nupkg` вместе с восемнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а typed client может использовать `IChatEventStore`/`ChatSyncCoordinator` для durable store-before-ack; `IReceivedMessageStore` остаётся низкоуровневой границей `ChatReceiver`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 
 ## Что не входит в v1
 
-Готовый product shell, список диалогов/контактов, MAUI/Avalonia adapters, production-инфраструктура, интеграция со SkopiClub, удаление сообщений, история версий правок, группы, resumable/range media, thumbnails, attachment forwarding, push, backup/recovery ключей и автоматический multi-device fan-out не входят в этот репозиторий. Контракты различают user и device, поэтому один пользователь может иметь несколько устройств, а host-owned sender создаёт отдельный конверт с уникальным `MessageId` для каждого устройства-получателя, переиспользуя один `ChatContentId`.
+Готовый product shell, contact discovery, Avalonia adapter, production-инфраструктура, интеграция со SkopiClub, удаление сообщений, история версий правок, группы, resumable/range media, thumbnails, attachment forwarding, push/background-delivery guarantee и backup/recovery ключей не входят в этот репозиторий. Multi-device sender создаёт отдельный immutable конверт с уникальным `MessageId` для каждого активного peer/sibling device, переиспользуя один `ChatContentId`; это fan-out без Double Ratchet и без автоматического доверия новым ключам.

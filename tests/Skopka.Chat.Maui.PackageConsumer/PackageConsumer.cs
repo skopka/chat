@@ -1,0 +1,15 @@
+using Skopka.Chat.Client.Maui;
+using Skopka.Chat.UI.Maui;
+
+namespace Skopka.Chat.Maui.PackageConsumer;
+
+public static class PackageConsumer
+{
+    public static IReadOnlyList<string> PublicTypes() =>
+    [
+        typeof(SecureStorageDeviceKeyStore).FullName!,
+        typeof(MauiChatLifecycleCoordinator).FullName!,
+        typeof(SkopkaChatView).FullName!,
+        typeof(MauiChatPresentation).FullName!,
+    ];
+}

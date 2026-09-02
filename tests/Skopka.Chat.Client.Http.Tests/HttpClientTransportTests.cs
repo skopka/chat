@@ -62,6 +62,104 @@ public sealed class HttpClientTransportTests
     }
 
     [Fact]
+    public async Task Typed_directory_client_uses_bounded_routes_and_validates_metadata()
+    {
+        var userId = Guid.NewGuid();
+        var peerUserId = Guid.NewGuid();
+        var deviceId = Guid.NewGuid();
+        var peerDeviceId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
+        using var httpClient = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            HttpResponseMessage response;
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.Equal("/skopka-chat/v1/conversations/personal", request.RequestUri?.AbsolutePath);
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(
+                        new PersonalConversationResponse(conversationId, userId, peerUserId, Now),
+                        SkopkaChatHttpJsonContext.Default.PersonalConversationResponse),
+                };
+            }
+            else if (request.RequestUri?.AbsolutePath.EndsWith("/devices", StringComparison.Ordinal) == true)
+            {
+                Assert.Equal("?take=2", request.RequestUri.Query);
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(
+                        new DeviceDirectoryResponse([PublicDevice(peerDeviceId)], null),
+                        SkopkaChatHttpJsonContext.Default.DeviceDirectoryResponse),
+                };
+            }
+            else
+            {
+                Assert.Equal("/skopka-chat/v1/conversations", request.RequestUri?.AbsolutePath);
+                Assert.Equal("?take=2", request.RequestUri?.Query);
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(
+                        new ConversationDirectoryResponse(
+                            [new PersonalConversationResponse(conversationId, userId, peerUserId, Now)],
+                            null),
+                        SkopkaChatHttpJsonContext.Default.ConversationDirectoryResponse),
+                };
+            }
+
+            return Task.FromResult(response);
+        }))
+        {
+            BaseAddress = new Uri("https://chat.example.test/"),
+        };
+        var client = CreateClient(
+            httpClient,
+            new CountingTokenProvider(new ChatAccessToken("token", Now.AddHours(1))),
+            userId,
+            deviceId);
+
+        var conversation = await client.GetOrCreatePersonalConversationAsync(new UserId(peerUserId));
+        var conversations = await client.ListConversationsAsync(maximumCount: 2);
+        var devices = await client.ListConversationDevicesAsync(new ConversationId(conversationId), maximumCount: 2);
+
+        Assert.Equal(new ConversationId(conversationId), conversation.ConversationId);
+        Assert.Equal(conversation, Assert.Single(conversations.Items));
+        Assert.Equal(new DeviceId(peerDeviceId), Assert.Single(devices.Items).DeviceId);
+    }
+
+    [Fact]
+    public async Task Hostile_directory_response_is_rejected_without_reflection()
+    {
+        var userId = Guid.NewGuid();
+        var peerUserId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
+        var body = JsonSerializer.Serialize(
+            new ConversationDirectoryResponse(
+                [new PersonalConversationResponse(conversationId, userId, peerUserId, Now)],
+                new string('x', SkopkaChatHttpLimits.MaxCursorCharacters + 1)),
+            SkopkaChatHttpJsonContext.Default.ConversationDirectoryResponse);
+        using var httpClient = new HttpClient(new DelegateHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            })))
+        {
+            BaseAddress = new Uri("https://chat.example.test/"),
+        };
+        var client = CreateClient(
+            httpClient,
+            new CountingTokenProvider(new ChatAccessToken("token", Now.AddHours(1))),
+            userId,
+            Guid.NewGuid());
+
+        var exception = await Assert.ThrowsAsync<ChatHttpTransportException>(async () =>
+            await client.ListConversationsAsync(maximumCount: 1));
+
+        Assert.Equal("The chat HTTP response was invalid.", exception.Message);
+        Assert.Null(exception.InnerException);
+        Assert.DoesNotContain(new string('x', 16), exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Expiring_token_is_rejected_before_network_io()
     {
         var attempts = 0;

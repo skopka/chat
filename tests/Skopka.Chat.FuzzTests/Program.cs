@@ -50,8 +50,8 @@ internal static class ChatFuzzTarget
 
     private static void Run(ReadOnlySpan<byte> input)
     {
-        var selector = input.IsEmpty ? 0 : SelectTarget(input[0]);
         var separator = input.IndexOf((byte)'\n');
+        var selector = SelectTarget(input, separator);
         var json = separator is >= 1 and <= 32 ? input[(separator + 1)..] : input;
 
         try
@@ -91,10 +91,27 @@ internal static class ChatFuzzTarget
                 case 6:
                     RoundTrip(json, SkopkaChatHttpJsonContext.Default.SubmitEnvelopeResponse);
                     break;
-                default:
+                case 7:
                     var contentBytes = DecodeContentSeed(json);
                     var content = ChatContentEncoding.Decode(contentBytes);
                     _ = ChatContentEncoding.Decode(ChatContentEncoding.Encode(content));
+                    break;
+                case 8:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.GetOrCreateConversationRequest);
+                    break;
+                case 9:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.ConversationDirectoryResponse);
+                    break;
+                default:
+                    var devices = RoundTrip(json, SkopkaChatHttpJsonContext.Default.DeviceDirectoryResponse);
+                    if (devices is not null)
+                    {
+                        foreach (var item in devices.Items ?? [])
+                        {
+                            _ = item?.ToDomain();
+                        }
+                    }
+
                     break;
             }
         }
@@ -125,9 +142,30 @@ internal static class ChatFuzzTarget
         return value;
     }
 
-    private static byte SelectTarget(byte value) => value is >= (byte)'0' and <= (byte)'7'
-        ? (byte)(value - (byte)'0')
-        : (byte)(value % 8);
+    private static byte SelectTarget(ReadOnlySpan<byte> input, int separator)
+    {
+        if (separator is 1 or 2)
+        {
+            var value = 0;
+            for (var index = 0; index < separator; index++)
+            {
+                if (input[index] is < (byte)'0' or > (byte)'9')
+                {
+                    value = -1;
+                    break;
+                }
+
+                value = (value * 10) + input[index] - (byte)'0';
+            }
+
+            if (value is >= 0 and <= 10)
+            {
+                return (byte)value;
+            }
+        }
+
+        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 11);
+    }
 
     private static byte[] DecodeContentSeed(ReadOnlySpan<byte> value)
     {

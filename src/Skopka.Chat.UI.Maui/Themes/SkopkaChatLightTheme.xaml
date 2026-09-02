@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ResourceDictionary
+    x:Class="Skopka.Chat.UI.Maui.Themes.SkopkaChatLightTheme"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+    <Color x:Key="SkopkaChatBackground">#FFFFFFFF</Color>
+    <Color x:Key="SkopkaChatIncomingBubble">#FFF3F4F6</Color>
+    <Color x:Key="SkopkaChatOutgoingBubble">#FFDDEBFF</Color>
+    <Color x:Key="SkopkaChatError">#FFB42318</Color>
+</ResourceDictionary>

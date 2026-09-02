@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('linux'))">net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Skopka.Chat.Maui.Sample</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <MauiXamlInflator>SourceGen</MauiXamlInflator>
+    <MauiEnableXamlCBindingWithSourceCompilation>true</MauiEnableXamlCBindingWithSourceCompilation>
+    <ApplicationTitle>Skopka.Chat MAUI Sample</ApplicationTitle>
+    <ApplicationId>dev.skopka.chat.sample</ApplicationId>
+    <ApplicationDisplayVersion>0.13.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <WindowsPackageType>None</WindowsPackageType>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Skopka.Chat.Client.Http\Skopka.Chat.Client.Http.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Client.Maui\Skopka.Chat.Client.Maui.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Client.Storage.Sqlite\Skopka.Chat.Client.Storage.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.UI.Maui\Skopka.Chat.UI.Maui.csproj" />
+    <PackageReference Include="Microsoft.Maui.Controls" />
+  </ItemGroup>
+
+</Project>

@@ -45,11 +45,49 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
     }
 
     /// <inheritdoc />
+    async ValueTask<DeviceDirectoryPage> IDeviceRepository.ListActiveForParticipantsAsync(
+        UserId firstUserId,
+        UserId secondUserId,
+        DeviceDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        var query = _context.Devices.AsNoTracking()
+            .Where(item =>
+                item.RevokedAt == null &&
+                (item.UserId == firstUserId.Value || item.UserId == secondUserId.Value));
+        if (cursor is { } after)
+        {
+            query = query.Where(item =>
+                item.UserId.CompareTo(after.UserId.Value) > 0 ||
+                (item.UserId == after.UserId.Value && item.DeviceId.CompareTo(after.DeviceId.Value) > 0));
+        }
+
+        var entities = await query
+            .OrderBy(item => item.UserId)
+            .ThenBy(item => item.DeviceId)
+            .Take(maximumCount + 1)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var hasMore = entities.Count > maximumCount;
+        var items = entities.Take(maximumCount).Select(item => item.ToDomain()).ToArray();
+        DeviceDirectoryCursor? next = hasMore && items.Length > 0
+            ? new DeviceDirectoryCursor(items[^1].UserId, items[^1].DeviceId)
+            : null;
+        return new DeviceDirectoryPage(items, next);
+    }
+
+    /// <inheritdoc />
     async ValueTask<bool> IConversationRepository.TryAddAsync(
         PersonalConversation conversation,
         CancellationToken cancellationToken)
     {
-        _context.Conversations.Add(ConversationEntity.FromDomain(conversation));
+        var canonical = PersonalConversation.CreateCanonical(
+            conversation.ConversationId,
+            conversation.FirstUserId,
+            conversation.SecondUserId,
+            conversation.CreatedAt);
+        _context.Conversations.Add(ConversationEntity.FromDomain(canonical));
         return await TrySaveAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -62,6 +100,58 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
             .SingleOrDefaultAsync(item => item.ConversationId == conversationId.Value, cancellationToken)
             .ConfigureAwait(false);
         return entity?.ToDomain();
+    }
+
+    /// <inheritdoc />
+    async ValueTask<PersonalConversation?> IConversationRepository.GetByParticipantsAsync(
+        UserId firstUserId,
+        UserId secondUserId,
+        CancellationToken cancellationToken)
+    {
+        var canonical = PersonalConversation.CreateCanonical(
+            default,
+            firstUserId,
+            secondUserId,
+            DateTimeOffset.UnixEpoch);
+        var entity = await _context.Conversations.AsNoTracking()
+            .SingleOrDefaultAsync(
+                item =>
+                    item.FirstUserId == canonical.FirstUserId.Value &&
+                    item.SecondUserId == canonical.SecondUserId.Value,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return entity?.ToDomain();
+    }
+
+    /// <inheritdoc />
+    async ValueTask<ConversationDirectoryPage> IConversationRepository.ListForUserAsync(
+        UserId userId,
+        ConversationDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        var query = _context.Conversations.AsNoTracking()
+            .Where(item => item.FirstUserId == userId.Value || item.SecondUserId == userId.Value);
+        if (cursor is { } before)
+        {
+            query = query.Where(item =>
+                item.CreatedAt < before.CreatedAt ||
+                (item.CreatedAt == before.CreatedAt &&
+                    item.ConversationId.CompareTo(before.ConversationId.Value) < 0));
+        }
+
+        var entities = await query
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.ConversationId)
+            .Take(maximumCount + 1)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var hasMore = entities.Count > maximumCount;
+        var items = entities.Take(maximumCount).Select(item => item.ToDomain()).ToArray();
+        ConversationDirectoryCursor? next = hasMore && items.Length > 0
+            ? new ConversationDirectoryCursor(items[^1].CreatedAt, items[^1].ConversationId)
+            : null;
+        return new ConversationDirectoryPage(items, next);
     }
 
     /// <inheritdoc />

@@ -36,3 +36,12 @@ public interface IChatTransport
         DateTimeOffset acknowledgedAt,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>Optional durable commit boundary for a completed sender-side local echo.</summary>
+public interface IChatLocalEchoCommitter
+{
+    /// <summary>Stores and applies a host-authenticated current-device local echo.</summary>
+    ValueTask CommitLocalEchoAsync(
+        ReceivedChatContent delivery,
+        CancellationToken cancellationToken = default);
+}

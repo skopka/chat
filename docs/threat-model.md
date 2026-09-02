@@ -50,10 +50,10 @@ The library deliberately supplies no filesystem key store. A host must implement
 - One-to-one text, reply, forward-marker, reaction, attachment-manifest and text/caption edit events only; no message deletion, edit history UI or groups.
 - No Double Ratchet, forward secrecy guarantee, post-compromise security, deniability or Signal interoperability.
 - No attachment forwarding, resumable/multipart upload, HTTP range playback, thumbnails, automatic preview, push notifications, key backup/recovery or server federation.
-- Multi-device users are representable, but the sender creates one envelope per recipient device; device fan-out policy belongs to the host application.
+- The standard sender creates one exact durable envelope per active peer/sibling device. It does not provide key transparency, atomic server acceptance across all devices or automatic trust for a newly observed key.
 - No key transparency, certificate authority, remote attestation or mandatory out-of-band fingerprint verification.
 - No traffic-shape protection, padding or sealed sender.
-- Optional presentation state and Blazor conversation components are available, but there is no product shell, SignalR/WebSocket push binding, access-token format, identity-provider integration or production infrastructure. An optional authenticated Minimal API polling transport is available.
+- Optional presentation state plus Blazor and MAUI conversation components are available, but there is no product shell, SignalR/WebSocket/push binding, access-token format, identity-provider integration or production infrastructure. An optional authenticated Minimal API polling transport is available; MAUI lifecycle wake is foreground coordination, not a background-delivery guarantee.
 
 Before production use, obtain an independent protocol and implementation audit, add a key-transparency design, validate deployment-specific host authentication and authorization, and replace this MVP protocol with a maintained ratcheting protocol where the target platforms permit it.
 
@@ -79,6 +79,8 @@ The projection, its snapshots, original values, applied edit values and any host
 
 `SqliteChatEventStore` stores sender/delivery metadata and canonical decrypted content. The content BLOB exposes text, reactions, edits, file metadata and attachment decryption keys to anyone who can read the local database. The adapter does not store device private keys or tokens and does not enable SQLite encryption. File permissions, full-disk/platform/database encryption, retention, secure deletion, backup, corruption recovery and exclusion from crash/telemetry uploads belong to the host. The native SQLite provider becomes part of the endpoint dependency trust base.
 
+`SqliteChatOutboxStore` stores exact recipient-specific ciphertext plans, signatures, device/conversation IDs and accepted state. A restart retries identical bytes, avoiding nonce/message-ID replacement, but local compromise reveals pending social-graph and traffic metadata and permits deletion/withholding. SecureStorage adapters hold private identity material and trust decisions behind OS facilities; platform backup/restore, keychain/keystore accessibility, uninstall and account-switch behavior remain host-reviewed boundaries. Missing/corrupt records are not silently regenerated.
+
 ## Attachment and storage boundary
 
 `ChatAttachmentContent` is decoded only after envelope verification. File name, media type, caption, plaintext length, file key and nonce prefix remain inside it; storage receives only opaque IDs, ciphertext length/hash and retention metadata. `MediaType` and `FileName` are authenticated sender claims, not proof of safe content or a safe local path.
@@ -95,7 +97,9 @@ The FFmpeg adapter uses generated internal paths and direct argument-list invoca
 
 ## Optional UI boundary
 
-`Skopka.Chat.UI.Core` stores decrypted projection snapshots, composer/reply/edit drafts and pre-edit composer state in managed memory. `IChatContentSender` is a host boundary: its implementation sees plaintext, chooses recipient devices, encrypts and transports content, and creates a matching authenticated local echo. An implementation that logs input, reuses one envelope `MessageId` across devices, trusts an unauthenticated device directory or reflects remote errors into UI defeats documented guarantees outside the core cryptography.
+`Skopka.Chat.UI.Core` stores decrypted projection snapshots, composer/reply/edit drafts and pre-edit composer state in managed memory. `IChatContentSender` remains a host boundary; the standard multi-device implementation sees plaintext, uses an authenticated directory, stores a complete plan before network I/O and creates a matching authenticated local echo. Replacing it with code that logs input, reuses one envelope `MessageId` across devices, trusts an unauthenticated directory or reflects remote errors into UI defeats documented guarantees outside the core cryptography.
+
+`Skopka.Chat.UI.Maui` keeps the same plaintext in managed controls and binding objects. Templates and host callbacks can leak it through logs, analytics, screenshots, clipboard, unsafe previews or accessibility surfaces. Default attachment actions do not auto-open paths/URIs, and bounded app-private temporary files are deleted after callbacks, but OS swap/crash snapshots and host-provided preview/share code remain outside the library's control.
 
 The default Blazor components render message, attachment metadata and reaction text through Razor encoding and retain only a generic expected-failure marker. They never automatically embed a storage URL. The optional browser media callback sees `IBrowserFile` plaintext and must consume it with an explicit limit; in Blazor Server it also crosses server-side circuit memory. Custom `MessageTemplate`, `AttachmentTemplate` and `ComposerTemplate` content is host code and can introduce DOM injection, plaintext logging, unsafe media loading or third-party disclosure, especially through raw markup. Applications must audit callbacks/templates, bound circuit/component/object-URL lifetime, protect local history and keep notifications and telemetry redacted.
 

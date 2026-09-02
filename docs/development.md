@@ -9,6 +9,7 @@ This guide is for human contributors. Coding agents must also follow the reposit
 - Docker or a separately provisioned **disposable** PostgreSQL database for persistence gates.
 - Optional host-maintained FFmpeg executable and a private working directory when testing `Skopka.Chat.Media.FFmpeg` against real media.
 - AFL++ on Linux for coverage-guided fuzzing; corpus replay itself is cross-platform.
+- .NET MAUI workloads on Windows for Android/Windows gates and on macOS for iOS/Mac Catalyst gates.
 
 NuGet restore uses only the source declared in [`NuGet.Config`](../NuGet.Config). Dependency versions are centralized in [`Directory.Packages.props`](../Directory.Packages.props); package/repository metadata is centralized in [`Directory.Build.props`](../Directory.Build.props).
 
@@ -22,10 +23,14 @@ flowchart TD
     Client --> Attachments
     ClientStorage[Skopka.Chat.Client.Storage] --> Client
     ClientSqlite[Skopka.Chat.Client.Storage.Sqlite] --> ClientStorage
+    ClientMaui[Skopka.Chat.Client.Maui] --> Client
+    ClientMaui --> ClientStorage
+    ClientMaui --> Media
     Media[Skopka.Chat.Media] --> Client
     Ffmpeg[Skopka.Chat.Media.FFmpeg] --> Media
     UiCore[Skopka.Chat.UI.Core] --> Client
     UiBlazor[Skopka.Chat.UI.Blazor] --> UiCore
+    UiMaui[Skopka.Chat.UI.Maui] --> UiCore
     HttpContract[Skopka.Chat.Transport.Http] --> Protocol
     HttpClient[Skopka.Chat.Client.Http] --> Client
     HttpClient --> Media
@@ -37,7 +42,7 @@ flowchart TD
     Persistence --> Protocol
 ```
 
-The arrows are intentional trust and dependency boundaries. In particular, Protocol is framework-independent, Server never references Client, the shared HTTP contract references Protocol only, and the HTTP client/server adapters never reference one another. Client.Storage depends only on Client; its optional SQLite adapter does not pull server persistence into the application. Media prepares plaintext only on the client before existing attachment encryption; the optional FFmpeg adapter depends on Media, not Server or storage. UI.Core references Client only; the optional Blazor package adds the UI framework without pulling Server or Persistence into the client.
+The arrows are intentional trust and dependency boundaries. In particular, Protocol is framework-independent, Server never references Client, the shared HTTP contract references Protocol only, and the HTTP client/server adapters never reference one another. Client.Storage depends only on Client; its optional SQLite adapter does not pull server persistence into the application. Media prepares plaintext only on the client before existing attachment encryption; the optional FFmpeg adapter depends on Media, not Server or storage. UI.Core references Client only; Blazor and MAUI add optional UI frameworks without pulling Server or Persistence into the client. Client.Maui contains endpoint adapters only and never becomes a dependency of Client/Storage/Media.
 
 ## Build and infrastructure-free tests
 
@@ -79,6 +84,8 @@ The persistence gate covers migrations, encrypted storage, concurrent identical/
 | Attachment crypto/storage | `Skopka.Chat.Client.Tests` + `Skopka.Chat.Attachments.Tests` | Both HTTP projects + required attachment PostgreSQL gate |
 | Media preparation | `Skopka.Chat.Media.Tests` | Client + Client.Http + infrastructure-free solution suite |
 | UI state/components | `Skopka.Chat.UI.Core.Tests` + `Skopka.Chat.UI.Blazor.Tests` | Infrastructure-free solution suite + package consumer |
+| MAUI client/lifecycle/files | `Skopka.Chat.Client.Maui.Tests` | Android + Windows and iOS + Mac Catalyst matrix |
+| MAUI control/XAML | `Skopka.Chat.UI.Maui.Tests` | Platform sample builds + trimming smoke + MAUI package consumer |
 | Server engine | `Skopka.Chat.Server.Tests` | In-memory integration |
 | HTTP client/contract | `Skopka.Chat.Client.Http.Tests` | ASP.NET Core tests + HTTP integration |
 | ASP.NET Core boundary | `Skopka.Chat.Server.AspNetCore.Tests` | Client HTTP tests + HTTP integration |
@@ -97,9 +104,22 @@ dotnet test --project tests/Skopka.Chat.Media.Tests --configuration Release --no
 
 The test checks real JPEG/H.264/AAC output, dimensions, pixel formats, metadata removal, MP4 fast-start ordering and plaintext work-directory cleanup. It generates synthetic inputs and does not read user media.
 
+## MAUI platform gates
+
+MAUI projects are listed in the solution for discovery but excluded from the default solution build configuration. The core Linux gate therefore remains independent of mobile workloads. Run the platform projects explicitly:
+
+```powershell
+dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
+dotnet test --project tests/Skopka.Chat.Client.Maui.Tests/Skopka.Chat.Client.Maui.Tests.csproj --configuration Release
+dotnet test --project tests/Skopka.Chat.UI.Maui.Tests/Skopka.Chat.UI.Maui.Tests.csproj --configuration Release
+dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --framework net10.0-android --configuration Release
+```
+
+Windows CI also builds the unpackaged Windows target and creates both MAUI NuGet packages, then inspects their Android/iOS/Mac Catalyst/Windows assets and restores `tests/Skopka.Chat.Maui.PackageConsumer` from those local files. macOS CI builds iOS simulator and Mac Catalyst targets and performs a trimmed Mac Catalyst publish smoke. A build on only one desktop OS is not the coordinated MAUI release gate.
+
 ## Coverage-guided JSON fuzzing
 
-The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of eight targets: seven shared HTTP contracts or the authenticated versioned-content decoder (v1 text/reaction and v2 attachments). Successful HTTP values and typed content are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; other exceptions fail the run.
+The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of eleven targets: ten shared HTTP contracts (including personal-conversation and device-directory pages) or the authenticated versioned-content decoder (v1 text/reaction, v2 attachments and v3 edits). Successful HTTP values and typed content are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; other exceptions fail the run.
 
 Replay committed seeds and minimized regressions on any platform:
 
@@ -129,10 +149,12 @@ For schema changes, generate a new EF migration. Existing migrations are append-
 
 ## Packaging and release verification
 
-The solution produces sixteen NuGet packages and sixteen symbol packages in `artifacts/packages`:
+The coordinated set contains eighteen NuGet packages and eighteen symbol packages. Linux creates the sixteen framework-independent/core packages; Windows adds `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` after building all package target frameworks. CI combines the artifacts and rejects missing or extra versioned files:
 
 ```powershell
 dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
+dotnet pack src/Skopka.Chat.Client.Maui/Skopka.Chat.Client.Maui.csproj --configuration Release --no-build --no-restore
+dotnet pack src/Skopka.Chat.UI.Maui/Skopka.Chat.UI.Maui.csproj --configuration Release --no-build --no-restore
 ```
 
 For a committed release, run `pack` after the release commit. MSBuild may otherwise retain a package created before the commit, leaving stale `<repository commit>` metadata. Recreate the versioned packages and inspect a `.nuspec`, for example:
@@ -142,7 +164,7 @@ $packageVersion = dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.c
 tar -xOf "artifacts/packages/Skopka.Chat.Transport.Http.$packageVersion.nupkg" Skopka.Chat.Transport.Http.nuspec
 ```
 
-Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` project is restored from the local package directory after packing and proves that all sixteen public assemblies can be consumed without project references. See [`releasing.md`](releasing.md) for the protected tag workflow.
+Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` proves consumption of the sixteen core assemblies; `tests/Skopka.Chat.Maui.PackageConsumer` proves Android consumption of the two platform packages. See [`releasing.md`](releasing.md) for the protected tag workflow.
 
 ## Security review prompts
 

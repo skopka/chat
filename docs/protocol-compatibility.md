@@ -35,6 +35,7 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.10.x` *(not published)* | v1 | v1 | Development line for attachment content v2, chunked file AEAD, independent PostgreSQL/S3 storage and authenticated ciphertext HTTP routes. |
 | `0.11.x` | v1 | v1 | First coordinated public set after `0.7.0`; includes the accumulated encrypted-content v1, UI, attachment content v2/storage and client-side media preparation/exact-file mode. Protocol-v1 canonical bytes remain unchanged. |
 | `0.12.x` | v1 | v1 | Adds encrypted content-v3 edits, adaptable edit UI, durable verified client-event storage/synchronization and optional SQLite. Content v1/v2 and protocol-v1 canonical bytes remain unchanged. |
+| `0.13.x` | v1 | v1 | Adds conversation/device directory APIs, retry-safe multi-device fan-out, durable outbox/history paging and optional MAUI client/UI adapters. Content v1/v2/v3 and protocol-v1 canonical bytes remain unchanged. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
 
@@ -51,3 +52,5 @@ Package `0.11.x` prepares optional photo/video plaintext before the attachment e
 Package `0.12.x` adds `ChatEditContent` as content v3. It does not reinterpret text/reaction content v1 or attachment content v2. Clients through `0.11.x` can authenticate and decrypt an edit envelope as opaque bytes but their typed decoder rejects content v3; all participants that project edits must therefore support v3. Exact bytes, author checks and deterministic folding are pinned in [ADR 0013](adr/0013-encrypted-message-edits.md).
 
 The `Skopka.Chat.Client.Storage` and `.Sqlite` packages in `0.12.x` operate only after protocol/content authentication. Their event schema and store/apply/ack coordinator do not change any transmitted bytes or require the server to understand typed content. SQLite rows contain local plaintext and are a host-protected endpoint asset, as defined in [ADR 0014](adr/0014-durable-client-events-and-sync.md).
+
+Package `0.13.x` adds no protocol or encrypted-content discriminator. A fan-out plan serializes already valid protocol-v1 envelopes and preserves each exact recipient-specific byte sequence across retries; one logical event still shares its content ID while each envelope keeps a unique message ID. Conversation/device directory routes expose authenticated metadata and opaque pagination cursors, not message preview/plaintext. MAUI storage, lifecycle, paging and UI types are endpoint-only APIs. See [ADR 0016](adr/0016-maui-client-orchestration.md).

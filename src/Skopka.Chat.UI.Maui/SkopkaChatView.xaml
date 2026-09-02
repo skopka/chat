@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView
+    x:Class="Skopka.Chat.UI.Maui.SkopkaChatView"
+    x:Name="Root"
+    x:DataType="local:MauiChatPresentation"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:local="clr-namespace:Skopka.Chat.UI.Maui">
+    <ContentView.Resources>
+        <DataTemplate x:Key="DefaultMessageTemplate" x:DataType="local:MauiChatTimelineItem">
+            <Grid Padding="12,4" HorizontalOptions="Start" SemanticProperties.Description="{Binding SemanticDescription}">
+                <Grid.Triggers>
+                    <DataTrigger TargetType="Grid" Binding="{Binding IsOwn}" Value="True">
+                        <Setter Property="HorizontalOptions" Value="End" />
+                    </DataTrigger>
+                </Grid.Triggers>
+                <Border Padding="12" StrokeThickness="1" StrokeShape="RoundRectangle 16"
+                        BackgroundColor="{AppThemeBinding Light=#FFF3F4F6, Dark=#FF252A31}"
+                        Stroke="{AppThemeBinding Light=#FFE1E4E8, Dark=#FF3C434D}">
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsOwn}" Value="True">
+                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#FFDDEBFF, Dark=#FF173B68}" />
+                            <Setter Property="Stroke" Value="{AppThemeBinding Light=#FFB6D3FA, Dark=#FF26588E}" />
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <VerticalStackLayout Spacing="6" MaximumWidthRequest="560">
+                        <Label Text="{Binding SenderLabel}" FontAttributes="Bold" FontSize="12" />
+                        <Label Text="{Binding ForwardedLabel}" FontAttributes="Italic" FontSize="12" IsVisible="{Binding IsForwarded}" />
+                        <Border Padding="8,4" StrokeThickness="0" BackgroundColor="{AppThemeBinding Light=#18000000, Dark=#28FFFFFF}"
+                                IsVisible="{Binding HasReplyPreview}">
+                            <Label Text="{Binding ReplyPreview}" MaxLines="2" LineBreakMode="TailTruncation" />
+                        </Border>
+                        <Label Text="{Binding Text}" LineBreakMode="WordWrap" />
+                        <HorizontalStackLayout Spacing="6" HorizontalOptions="End">
+                            <Label Text="{Binding SentAtLabel}" FontSize="11" />
+                            <Label Text="{Binding EditedLabel}" FontSize="11" FontAttributes="Italic" IsVisible="{Binding IsEdited}" />
+                        </HorizontalStackLayout>
+                        <Label Text="{Binding ReactionSummary}" FontSize="12" IsVisible="{Binding HasReactions}" />
+                        <FlexLayout Wrap="Wrap" BindableLayout.ItemsSource="{Binding ReactionChoices}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate x:DataType="local:MauiReactionChoice">
+                                    <Button Text="{Binding Text}" Command="{Binding Command}" MinimumHeightRequest="44" MinimumWidthRequest="44" Padding="8,4" />
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </FlexLayout>
+                        <FlexLayout Wrap="Wrap" JustifyContent="End">
+                            <Button Text="{Binding ReplyLabel}" Command="{Binding ReplyCommand}" MinimumHeightRequest="44" />
+                            <Button Text="{Binding ForwardLabel}" Command="{Binding ForwardCommand}" MinimumHeightRequest="44" />
+                            <Button Text="{Binding EditLabel}" Command="{Binding EditCommand}" IsVisible="{Binding CanEdit}" MinimumHeightRequest="44" />
+                        </FlexLayout>
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="DefaultAttachmentTemplate" x:DataType="local:MauiChatTimelineItem">
+            <Grid Padding="12,4" HorizontalOptions="Start" SemanticProperties.Description="{Binding SemanticDescription}">
+                <Grid.Triggers>
+                    <DataTrigger TargetType="Grid" Binding="{Binding IsOwn}" Value="True">
+                        <Setter Property="HorizontalOptions" Value="End" />
+                    </DataTrigger>
+                </Grid.Triggers>
+                <Border Padding="12" StrokeThickness="1" StrokeShape="RoundRectangle 16"
+                        BackgroundColor="{AppThemeBinding Light=#FFF3F4F6, Dark=#FF252A31}"
+                        Stroke="{AppThemeBinding Light=#FFE1E4E8, Dark=#FF3C434D}">
+                    <VerticalStackLayout Spacing="6" MaximumWidthRequest="560">
+                        <Label Text="{Binding SenderLabel}" FontAttributes="Bold" FontSize="12" />
+                        <Border Padding="8,4" StrokeThickness="0" BackgroundColor="{AppThemeBinding Light=#18000000, Dark=#28FFFFFF}"
+                                IsVisible="{Binding HasReplyPreview}">
+                            <Label Text="{Binding ReplyPreview}" MaxLines="2" LineBreakMode="TailTruncation" />
+                        </Border>
+                        <Label Text="{Binding FileName}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+                        <Label Text="{Binding MediaType}" FontSize="12" />
+                        <Label Text="{Binding Caption}" LineBreakMode="WordWrap" IsVisible="{Binding HasCaption}" />
+                        <HorizontalStackLayout Spacing="6" HorizontalOptions="End">
+                            <Label Text="{Binding SentAtLabel}" FontSize="11" />
+                            <Label Text="{Binding EditedLabel}" FontSize="11" FontAttributes="Italic" IsVisible="{Binding IsEdited}" />
+                        </HorizontalStackLayout>
+                        <Label Text="{Binding ReactionSummary}" FontSize="12" IsVisible="{Binding HasReactions}" />
+                        <FlexLayout Wrap="Wrap" BindableLayout.ItemsSource="{Binding ReactionChoices}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate x:DataType="local:MauiReactionChoice">
+                                    <Button Text="{Binding Text}" Command="{Binding Command}" MinimumHeightRequest="44" MinimumWidthRequest="44" Padding="8,4" />
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </FlexLayout>
+                        <FlexLayout Wrap="Wrap" JustifyContent="End">
+                            <Button Text="{Binding DownloadLabel}" Command="{Binding DownloadCommand}" MinimumHeightRequest="44" />
+                            <Button Text="{Binding ReplyLabel}" Command="{Binding ReplyCommand}" MinimumHeightRequest="44" />
+                            <Button Text="{Binding ForwardLabel}" Command="{Binding ForwardCommand}" MinimumHeightRequest="44" />
+                            <Button Text="{Binding EditLabel}" Command="{Binding EditCommand}" IsVisible="{Binding CanEdit}" MinimumHeightRequest="44" />
+                        </FlexLayout>
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+        </DataTemplate>
+    </ContentView.Resources>
+
+    <Grid RowDefinitions="*,Auto" SafeAreaEdges="All"
+          BackgroundColor="{AppThemeBinding Light=#FFFFFFFF, Dark=#FF15181D}">
+        <CollectionView
+            x:Name="Timeline"
+            Grid.Row="0"
+            ItemsSource="{Binding Items}"
+            ItemsUpdatingScrollMode="KeepScrollOffset"
+            SelectionMode="None"
+            Scrolled="OnTimelineScrolled"
+            SemanticProperties.Description="{Binding Strings.Timeline}">
+            <CollectionView.EmptyView>
+                <Grid Padding="24">
+                    <Label x:Name="DefaultEmptyLabel" Text="{Binding Strings.EmptyConversation}" HorizontalOptions="Center" VerticalOptions="Center" />
+                    <ContentView x:Name="CustomEmptyHost" IsVisible="False" BindingContext="{Binding .}" />
+                </Grid>
+            </CollectionView.EmptyView>
+        </CollectionView>
+
+        <VerticalStackLayout Grid.Row="0" HorizontalOptions="Center" VerticalOptions="Center" IsVisible="{Binding IsLoading}">
+            <ActivityIndicator IsRunning="{Binding IsLoading}" />
+            <Label Text="{Binding Strings.Loading}" />
+        </VerticalStackLayout>
+
+        <Grid Grid.Row="1">
+            <Grid x:Name="DefaultComposer" Padding="8" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto">
+                <Label Grid.Row="0" Grid.ColumnSpan="3" Text="{Binding Strings.CommandFailed}" TextColor="{AppThemeBinding Light=#FFB42318, Dark=#FFFFB4AB}"
+                       IsVisible="{Binding HasError}" SemanticProperties.Description="{Binding Strings.CommandFailed}" />
+                <HorizontalStackLayout Grid.Row="1" Grid.ColumnSpan="3" Spacing="6" IsVisible="{Binding IsSending}"
+                                       SemanticProperties.Description="{Binding Strings.Sending}">
+                    <ActivityIndicator IsRunning="{Binding IsSending}" WidthRequest="24" HeightRequest="24" />
+                    <Label Text="{Binding Strings.Sending}" VerticalTextAlignment="Center" />
+                </HorizontalStackLayout>
+                <Button Grid.Row="2" Grid.Column="0" Text="{Binding Strings.Attach}" Command="{Binding AttachmentCommand}"
+                        MinimumHeightRequest="44" MinimumWidthRequest="44" />
+                <Editor Grid.Row="2" Grid.Column="1" Text="{Binding DraftText, Mode=TwoWay}" Placeholder="{Binding Strings.ComposerPlaceholder}"
+                        AutoSize="TextChanges" MaximumHeightRequest="160" MinimumHeightRequest="44" />
+                <VerticalStackLayout Grid.Row="2" Grid.Column="2" Spacing="2">
+                    <Button Text="{Binding Strings.Send}" Command="{Binding SendCommand}" MinimumHeightRequest="44" MinimumWidthRequest="64" />
+                    <Button Text="{Binding Strings.Cancel}" Command="{Binding CancelEditOrReplyCommand}" MinimumHeightRequest="44"
+                            IsVisible="{Binding IsEditingOrReplying}" />
+                </VerticalStackLayout>
+            </Grid>
+            <ContentView x:Name="CustomComposerHost" IsVisible="False" BindingContext="{Binding .}" />
+        </Grid>
+    </Grid>
+</ContentView>

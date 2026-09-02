@@ -9,7 +9,9 @@ public sealed class InMemoryServerStore : IDeviceRepository, IConversationReposi
 {
     private readonly ConcurrentDictionary<DeviceId, PublicDevice> _devices = new();
     private readonly ConcurrentDictionary<ConversationId, PersonalConversation> _conversations = new();
+    private readonly ConcurrentDictionary<(UserId First, UserId Second), ConversationId> _conversationPairs = new();
     private readonly ConcurrentDictionary<MessageId, EnvelopeEntry> _envelopes = new();
+    private readonly object _conversationGate = new();
 
     /// <summary>Returns a point-in-time copy of encrypted server records for diagnostics and tests.</summary>
     public IReadOnlyList<StoredEnvelope> SnapshotEnvelopes() =>
@@ -52,10 +54,56 @@ public sealed class InMemoryServerStore : IDeviceRepository, IConversationReposi
     }
 
     /// <inheritdoc />
+    ValueTask<DeviceDirectoryPage> IDeviceRepository.ListActiveForParticipantsAsync(
+        UserId firstUserId,
+        UserId secondUserId,
+        DeviceDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var ordered = _devices.Values
+            .Where(item =>
+                !item.IsRevoked &&
+                (item.UserId == firstUserId || item.UserId == secondUserId) &&
+                (!cursor.HasValue || CompareDevice(item, cursor.Value) > 0))
+            .OrderBy(item => item.UserId.Value)
+            .ThenBy(item => item.DeviceId.Value)
+            .Take(maximumCount + 1)
+            .ToArray();
+        var hasMore = ordered.Length > maximumCount;
+        var items = ordered.Take(maximumCount).ToArray();
+        DeviceDirectoryCursor? next = hasMore && items.Length > 0
+            ? new DeviceDirectoryCursor(items[^1].UserId, items[^1].DeviceId)
+            : null;
+        return ValueTask.FromResult(new DeviceDirectoryPage(items, next));
+    }
+
+    /// <inheritdoc />
     ValueTask<bool> IConversationRepository.TryAddAsync(PersonalConversation conversation, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(_conversations.TryAdd(conversation.ConversationId, conversation));
+        var canonical = PersonalConversation.CreateCanonical(
+            conversation.ConversationId,
+            conversation.FirstUserId,
+            conversation.SecondUserId,
+            conversation.CreatedAt);
+        var pair = (canonical.FirstUserId, canonical.SecondUserId);
+        lock (_conversationGate)
+        {
+            if (_conversationPairs.ContainsKey(pair) || _conversations.ContainsKey(canonical.ConversationId))
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            if (!_conversationPairs.TryAdd(pair, canonical.ConversationId) ||
+                !_conversations.TryAdd(canonical.ConversationId, canonical))
+            {
+                throw new InvalidOperationException("The in-memory conversation indexes are inconsistent.");
+            }
+
+            return ValueTask.FromResult(true);
+        }
     }
 
     /// <inheritdoc />
@@ -63,6 +111,49 @@ public sealed class InMemoryServerStore : IDeviceRepository, IConversationReposi
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(_conversations.GetValueOrDefault(conversationId));
+    }
+
+    /// <inheritdoc />
+    ValueTask<PersonalConversation?> IConversationRepository.GetByParticipantsAsync(
+        UserId firstUserId,
+        UserId secondUserId,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var canonical = PersonalConversation.CreateCanonical(
+            default,
+            firstUserId,
+            secondUserId,
+            DateTimeOffset.UnixEpoch);
+        lock (_conversationGate)
+        {
+            return ValueTask.FromResult(
+                _conversationPairs.TryGetValue((canonical.FirstUserId, canonical.SecondUserId), out var id)
+                    ? _conversations.GetValueOrDefault(id)
+                    : null);
+        }
+    }
+
+    /// <inheritdoc />
+    ValueTask<ConversationDirectoryPage> IConversationRepository.ListForUserAsync(
+        UserId userId,
+        ConversationDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var ordered = _conversations.Values
+            .Where(item => item.Contains(userId) && (!cursor.HasValue || CompareConversation(item, cursor.Value) < 0))
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.ConversationId.Value)
+            .Take(maximumCount + 1)
+            .ToArray();
+        var hasMore = ordered.Length > maximumCount;
+        var items = ordered.Take(maximumCount).ToArray();
+        ConversationDirectoryCursor? next = hasMore && items.Length > 0
+            ? new ConversationDirectoryCursor(items[^1].CreatedAt, items[^1].ConversationId)
+            : null;
+        return ValueTask.FromResult(new ConversationDirectoryPage(items, next));
     }
 
     /// <inheritdoc />
@@ -148,4 +239,18 @@ public sealed class InMemoryServerStore : IDeviceRepository, IConversationReposi
     }
 
     private sealed record EnvelopeEntry(StoredEnvelope Record, byte[] CanonicalHash);
+
+    private static int CompareDevice(PublicDevice device, DeviceDirectoryCursor cursor)
+    {
+        var userComparison = device.UserId.Value.CompareTo(cursor.UserId.Value);
+        return userComparison != 0 ? userComparison : device.DeviceId.Value.CompareTo(cursor.DeviceId.Value);
+    }
+
+    private static int CompareConversation(PersonalConversation conversation, ConversationDirectoryCursor cursor)
+    {
+        var createdComparison = conversation.CreatedAt.CompareTo(cursor.CreatedAt);
+        return createdComparison != 0
+            ? createdComparison
+            : conversation.ConversationId.Value.CompareTo(cursor.ConversationId.Value);
+    }
 }

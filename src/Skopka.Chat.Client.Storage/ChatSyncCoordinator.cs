@@ -17,7 +17,7 @@ public sealed record ChatSyncBatchResult(int Received, int Stored, int Duplicate
 /// <summary>
 /// Serializes polling and processes each delivery as authenticate/decrypt, durable store, idempotent apply, acknowledge.
 /// </summary>
-public sealed class ChatSyncCoordinator : IDisposable
+public sealed class ChatSyncCoordinator : IDisposable, IChatLocalEchoCommitter
 {
     private readonly IChatTransport _transport;
     private readonly ChatCryptoService _crypto;
@@ -25,6 +25,7 @@ public sealed class ChatSyncCoordinator : IDisposable
     private readonly IChatEventApplier _applier;
     private readonly DeviceId _recipientDeviceId;
     private readonly TimeProvider _timeProvider;
+    private readonly bool _restoreAllHistory;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _restored;
     private bool _disposed;
@@ -36,7 +37,8 @@ public sealed class ChatSyncCoordinator : IDisposable
         IChatEventStore events,
         IChatEventApplier applier,
         DeviceId recipientDeviceId,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        bool restoreAllHistory = true)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _crypto = crypto ?? throw new ArgumentNullException(nameof(crypto));
@@ -49,6 +51,7 @@ public sealed class ChatSyncCoordinator : IDisposable
 
         _recipientDeviceId = recipientDeviceId;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _restoreAllHistory = restoreAllHistory;
     }
 
     /// <summary>Restores all committed events into the idempotent applier exactly once per coordinator instance.</summary>
@@ -173,6 +176,13 @@ public sealed class ChatSyncCoordinator : IDisposable
         }
     }
 
+    async ValueTask IChatLocalEchoCommitter.CommitLocalEchoAsync(
+        ReceivedChatContent delivery,
+        CancellationToken cancellationToken)
+    {
+        await CommitLocalEchoAsync(delivery, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -189,6 +199,12 @@ public sealed class ChatSyncCoordinator : IDisposable
     {
         if (_restored)
         {
+            return 0;
+        }
+
+        if (!_restoreAllHistory)
+        {
+            _restored = true;
             return 0;
         }
 

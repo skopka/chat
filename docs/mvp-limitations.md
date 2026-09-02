@@ -9,14 +9,14 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 ## Functional limits
 
 - Personal chat with encrypted text, replies, non-provenance text forwarding, reactions, text/attachment-caption edits and independently encrypted attachment manifests.
-- One envelope per recipient device; the host owns device enumeration and fan-out.
+- One envelope per active recipient/sibling device. The standard directory and durable sender perform fan-out, but the host still owns trust UX, account lifecycle and policy for starting a new logical send.
 - No message deletion, edit-history UI, groups, attachment replacement/forwarding, resumable/multipart uploads, range playback, thumbnails or automatic media preview. Photos/videos may be prepared locally before the current HTTP path streams a complete ciphertext object.
 - No push-notification provider integration.
 - No key backup, recovery, transfer or account reset protocol.
 - The optional Minimal API and typed HTTP client support request/response polling only; no WebSocket or SignalR push transport is included.
 - Delivery is at-least-once. Concurrent pollers may observe the same envelope before acknowledgement. `ChatSyncCoordinator` provides durable store/apply-before-ack with exact `MessageId` deduplication, but idempotent replay is not an exactly-once external-side-effect guarantee.
 - No token issuer, token format, authentication scheme or identity-provider integration is selected by the packages.
-- Optional UI.Core and Blazor conversation components are included, but there is no product shell, contacts/conversation navigation, MAUI/Avalonia adapter or SkopiClub integration.
+- Optional UI.Core, Blazor and MAUI conversation components are included, but there is no product shell, contact discovery/navigation, Avalonia adapter or SkopiClub integration.
 - No federation, traffic padding, sealed sender or metadata hiding.
 
 ## Required host responsibilities
@@ -32,7 +32,8 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - If media preparation is enabled, provision a private plaintext working directory, pin/sandbox the host FFmpeg binary, bound concurrent processes/time/disk and clean stale operation directories after abnormal termination. `File` mode is the exact-byte escape hatch; JPEG conversion does not preserve PNG transparency/animation.
 - Keep the PostgreSQL reliability and HTTP integration gates mandatory in release CI; extend them with sustained-load, deployment-specific failover and restore exercises.
 - Treat decrypted local messages as sensitive. Use `IChatEventStore`/`ChatSyncCoordinator` for durable typed receive, or implement equivalent transactional storage before acknowledgement; `IReceivedMessageStore` remains the lower-level `ChatReceiver` boundary.
-- Protect SQLite client history with platform/filesystem/database controls. It contains canonical plaintext and delivered attachment keys; the adapter does not provide encryption, backup, retention, secure deletion or cross-device synchronization.
+- Protect SQLite client history/outbox with platform/filesystem/database controls. History contains canonical plaintext and delivered attachment keys; the outbox contains exact ciphertext and routing identities. The adapters do not provide database encryption, backup, retention, secure deletion or cross-device synchronization.
+- Review MAUI SecureStorage backup/restore and uninstall behavior per platform. Missing or corrupt identity records require an explicit recovery flow; never hide a key change by silently generating a replacement.
 - Treat UI drafts, templates, browser/Blazor Server circuits and rendered notification text as plaintext. Keep templates encoded, bound retention and do not log `IChatContentSender` input or remote response bodies.
 
 ## Roadmap
@@ -40,7 +41,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 1. Independent review of protocol, implementation, dependencies and host-integration guidance.
 2. Append-only key transparency and key-change UX for the authenticated device directory.
 3. Maintained ratcheting protocol for personal chat, introduced as a new protocol version with explicit migration.
-4. Multi-device fan-out, device-list consistency and safe device removal.
+4. Multi-device consistency hardening: transparency-backed device changes, safe device removal, history/bootstrap policy and large-scale outbox operations.
 5. Resumable/multipart attachments, range playback, thumbnails and a separately reviewed safe-forwarding/revocation policy.
 6. Groups, preferably through a maintained MLS implementation when a supported .NET integration is available.
 7. Optional protected key backup/recovery with a separately reviewed threat model.

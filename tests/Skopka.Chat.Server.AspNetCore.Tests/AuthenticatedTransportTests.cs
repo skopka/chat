@@ -179,6 +179,79 @@ public sealed class AuthenticatedTransportTests
     }
 
     [Fact]
+    public async Task Personal_directory_is_idempotent_bounded_and_does_not_return_plaintext_preview()
+    {
+        await using var application = await CreateApplicationAsync();
+        using var client = application.GetTestClient();
+        var alice = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var bob = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await RegisterAsync(client, alice);
+        await RegisterAsync(client, bob);
+
+        using var first = await SendJsonAsync(
+            client,
+            HttpMethod.Post,
+            "/skopka-chat/v1/conversations/personal",
+            alice,
+            new GetOrCreateConversationRequest(bob.UserId));
+        using var reverse = await SendJsonAsync(
+            client,
+            HttpMethod.Post,
+            "/skopka-chat/v1/conversations/personal",
+            bob,
+            new GetOrCreateConversationRequest(alice.UserId));
+        var firstConversation = await first.Content.ReadFromJsonAsync<PersonalConversationResponse>();
+        var reverseConversation = await reverse.Content.ReadFromJsonAsync<PersonalConversationResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(firstConversation!.ConversationId, reverseConversation!.ConversationId);
+        using var listRequest = AuthorizedRequest(
+            HttpMethod.Get,
+            "/skopka-chat/v1/conversations?take=1",
+            alice.UserId,
+            alice.DeviceId);
+        using var listResponse = await client.SendAsync(listRequest);
+        var raw = await listResponse.Content.ReadAsStringAsync();
+        var page = JsonSerializer.Deserialize(raw, SkopkaChatHttpJsonContext.Default.ConversationDirectoryResponse);
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        Assert.Single(page!.Items);
+        Assert.DoesNotContain("preview", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("message", raw, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Conversation_device_directory_forbids_non_member_and_rejects_hostile_cursor()
+    {
+        await using var application = await CreateApplicationAsync();
+        using var client = application.GetTestClient();
+        var alice = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var bob = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var mallory = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await RegisterAsync(client, alice);
+        await RegisterAsync(client, bob);
+        await RegisterAsync(client, mallory);
+        var conversationId = await CreateConversationAsync(client, alice, bob.UserId);
+
+        using var forbidden = AuthorizedRequest(
+            HttpMethod.Get,
+            $"/skopka-chat/v1/conversations/{conversationId:D}/devices",
+            mallory.UserId,
+            mallory.DeviceId);
+        using var forbiddenResponse = await client.SendAsync(forbidden);
+        Assert.Equal(HttpStatusCode.Forbidden, forbiddenResponse.StatusCode);
+
+        using var hostile = AuthorizedRequest(
+            HttpMethod.Get,
+            $"/skopka-chat/v1/conversations/{conversationId:D}/devices?cursor={HostileMarker}&take=10",
+            alice.UserId,
+            alice.DeviceId);
+        using var hostileResponse = await client.SendAsync(hostile);
+        var responseBody = await hostileResponse.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.BadRequest, hostileResponse.StatusCode);
+        Assert.DoesNotContain(HostileMarker, responseBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Oversized_ciphertext_is_rejected_without_persistence()
     {
         await using var application = await CreateApplicationAsync();

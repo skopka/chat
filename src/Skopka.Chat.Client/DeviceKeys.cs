@@ -154,4 +154,54 @@ public sealed class DeviceIdentityService
         ProtocolValidator.Validate(device);
         return device;
     }
+
+    /// <summary>Loads an existing identity and derives its public record without replacing missing keys.</summary>
+    public async ValueTask<PublicDevice?> LoadPublicAsync(
+        UserId userId,
+        DeviceId deviceId,
+        DateTimeOffset registeredAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId.Value == Guid.Empty || deviceId.Value == Guid.Empty || registeredAt == default)
+        {
+            throw new ArgumentException("User, device and registration time are required.");
+        }
+
+        var material = await _keyStore.LoadAsync(deviceId, cancellationToken).ConfigureAwait(false);
+        if (material is null)
+        {
+            return null;
+        }
+
+        if (material.UserId != userId || material.DeviceId != deviceId || material.KeyId.Value == Guid.Empty)
+        {
+            throw new ChatCryptographicException("Stored device identity does not match the authenticated session.");
+        }
+
+        var encryptionPrivate = material.ExportEncryptionPrivateKey();
+        var signingPrivate = material.ExportSigningPrivateKey();
+        try
+        {
+            using var encryptionKey = Key.Import(Agreement, encryptionPrivate, KeyBlobFormat.NSecPrivateKey);
+            using var signingKey = Key.Import(Signature, signingPrivate, KeyBlobFormat.NSecPrivateKey);
+            var device = new PublicDevice(
+                userId,
+                deviceId,
+                material.KeyId,
+                encryptionKey.PublicKey.Export(KeyBlobFormat.RawPublicKey),
+                signingKey.PublicKey.Export(KeyBlobFormat.RawPublicKey),
+                registeredAt);
+            ProtocolValidator.Validate(device);
+            return device;
+        }
+        catch (Exception exception) when (exception is ArgumentException or CryptographicException)
+        {
+            throw new ChatCryptographicException("Stored device identity is corrupt or incompatible.");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(encryptionPrivate);
+            CryptographicOperations.ZeroMemory(signingPrivate);
+        }
+    }
 }

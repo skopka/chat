@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
+using System.Buffers.Binary;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client.Storage;
@@ -53,6 +54,34 @@ public interface IChatEventStore
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Hard bounds for on-demand local history pages.</summary>
+public static class ChatEventPagingLimits
+{
+    /// <summary>Largest page returned by a local history provider.</summary>
+    public const int MaxPageSize = 200;
+
+    /// <summary>Largest provider-owned opaque cursor.</summary>
+    public const int MaxCursorCharacters = 64;
+}
+
+/// <summary>One chronological page and an opaque cursor for the preceding page.</summary>
+public sealed record ChatEventPage(
+    IReadOnlyList<ReceivedChatContent> Items,
+    string? PreviousCursor);
+
+/// <summary>Optional bounded paging contract kept separate from the legacy event journal interface.</summary>
+public interface IPagedChatEventStore
+{
+    /// <summary>
+    /// Reads the newest page before an opaque cursor. Items are chronological so a UI can prepend them.
+    /// </summary>
+    ValueTask<ChatEventPage> ReadPreviousPageAsync(
+        ConversationId conversationId,
+        string? beforeCursor = null,
+        int maximumCount = 50,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>Receives a durably committed event after storage and before server acknowledgement.</summary>
 /// <remarks>Implementations must be idempotent because acknowledgement retries reapply duplicate deliveries.</remarks>
 public interface IChatEventApplier
@@ -95,7 +124,7 @@ public sealed class ChatConversationProjectionRegistry : IChatEventApplier
 }
 
 /// <summary>In-memory event journal for tests and samples; it is not durable or protected storage.</summary>
-public sealed class InMemoryChatEventStore : IChatEventStore
+public sealed class InMemoryChatEventStore : IChatEventStore, IPagedChatEventStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<MessageId, ReceivedChatContent> _deliveries = [];
@@ -165,6 +194,41 @@ public sealed class InMemoryChatEventStore : IChatEventStore
         }
     }
 
+    /// <inheritdoc />
+    public ValueTask<ChatEventPage> ReadPreviousPageAsync(
+        ConversationId conversationId,
+        string? beforeCursor = null,
+        int maximumCount = 50,
+        CancellationToken cancellationToken = default)
+    {
+        if (conversationId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Conversation ID must not be empty.", nameof(conversationId));
+        }
+
+        if (maximumCount is < 1 or > ChatEventPagingLimits.MaxPageSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var beforeSequence = DecodeCursor(beforeCursor);
+        lock (_gate)
+        {
+            var matching = _order
+                .Select((id, index) => new { Sequence = (long)index + 1, Delivery = _deliveries[id] })
+                .Where(item =>
+                    item.Delivery.ConversationId == conversationId &&
+                    (!beforeSequence.HasValue || item.Sequence < beforeSequence.Value))
+                .ToArray();
+            var selected = matching.TakeLast(maximumCount).ToArray();
+            var hasOlder = selected.Length > 0 && matching.Length > selected.Length;
+            return ValueTask.FromResult(new ChatEventPage(
+                selected.Select(item => item.Delivery).ToArray(),
+                hasOlder ? EncodeCursor(selected[0].Sequence) : null));
+        }
+    }
+
     private ReceivedChatContent[] Snapshot(ConversationId? conversationId)
     {
         lock (_gate)
@@ -173,6 +237,51 @@ public sealed class InMemoryChatEventStore : IChatEventStore
                 .Select(id => _deliveries[id])
                 .Where(item => !conversationId.HasValue || item.ConversationId == conversationId.Value)
                 .ToArray();
+        }
+    }
+
+    private static string EncodeCursor(long sequence)
+    {
+        Span<byte> bytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(bytes, sequence);
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static long? DecodeCursor(string? cursor)
+    {
+        if (cursor is null)
+        {
+            return null;
+        }
+
+        if (cursor.Length is 0 or > ChatEventPagingLimits.MaxCursorCharacters ||
+            cursor.Any(character =>
+                !(character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_')))
+        {
+            throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
+        }
+
+        var padded = cursor.Replace('-', '+').Replace('_', '/');
+        padded += new string('=', (4 - padded.Length % 4) % 4);
+        try
+        {
+            var bytes = Convert.FromBase64String(padded);
+            if (bytes.Length != 8)
+            {
+                throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
+            }
+
+            var sequence = BinaryPrimitives.ReadInt64BigEndian(bytes);
+            if (sequence <= 0 || !string.Equals(EncodeCursor(sequence), cursor, StringComparison.Ordinal))
+            {
+                throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
+            }
+
+            return sequence;
+        }
+        catch (FormatException)
+        {
+            throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
         }
     }
 }

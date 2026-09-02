@@ -51,7 +51,9 @@ public sealed class ChatDbContext : DbContext
             entity.Property(item => item.FirstUserId).HasColumnName("first_user_id");
             entity.Property(item => item.SecondUserId).HasColumnName("second_user_id");
             entity.Property(item => item.CreatedAt).HasColumnName("created_at");
-            entity.HasIndex(item => new { item.FirstUserId, item.SecondUserId }).HasDatabaseName("ix_conversations_users");
+            entity.HasIndex(item => new { item.FirstUserId, item.SecondUserId })
+                .IsUnique()
+                .HasDatabaseName("ux_conversations_users");
         });
 
         modelBuilder.Entity<EnvelopeEntity>(entity =>

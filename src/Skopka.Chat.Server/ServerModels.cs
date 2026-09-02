@@ -11,7 +11,42 @@ public sealed record PersonalConversation(
 {
     /// <summary>Returns whether the user is one of the two participants.</summary>
     public bool Contains(UserId userId) => userId == FirstUserId || userId == SecondUserId;
+
+    /// <summary>Creates metadata with a deterministic unordered participant pair.</summary>
+    public static PersonalConversation CreateCanonical(
+        ConversationId conversationId,
+        UserId firstUserId,
+        UserId secondUserId,
+        DateTimeOffset createdAt) =>
+        firstUserId.Value.CompareTo(secondUserId.Value) <= 0
+            ? new PersonalConversation(conversationId, firstUserId, secondUserId, createdAt)
+            : new PersonalConversation(conversationId, secondUserId, firstUserId, createdAt);
 }
+
+/// <summary>Bounds authenticated server directory pages.</summary>
+public static class ChatDirectoryLimits
+{
+    /// <summary>Largest conversation or device directory page.</summary>
+    public const int MaxPageSize = 100;
+}
+
+/// <summary>Stable repository cursor for conversations ordered by creation time and ID.</summary>
+public readonly record struct ConversationDirectoryCursor(
+    DateTimeOffset CreatedAt,
+    ConversationId ConversationId);
+
+/// <summary>One bounded page of personal-conversation metadata.</summary>
+public sealed record ConversationDirectoryPage(
+    IReadOnlyList<PersonalConversation> Items,
+    ConversationDirectoryCursor? NextCursor);
+
+/// <summary>Stable repository cursor for active devices ordered by owner and device ID.</summary>
+public readonly record struct DeviceDirectoryCursor(UserId UserId, DeviceId DeviceId);
+
+/// <summary>One bounded page of active participant devices.</summary>
+public sealed record DeviceDirectoryPage(
+    IReadOnlyList<PublicDevice> Items,
+    DeviceDirectoryCursor? NextCursor);
 
 /// <summary>Server persistence record containing encrypted data and delivery metadata only.</summary>
 public sealed record StoredEnvelope(

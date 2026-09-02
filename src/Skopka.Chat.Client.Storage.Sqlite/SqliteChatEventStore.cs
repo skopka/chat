@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Buffers.Binary;
 using Microsoft.Data.Sqlite;
 using Skopka.Chat.Protocol;
 
@@ -11,7 +12,7 @@ namespace Skopka.Chat.Client.Storage.Sqlite;
 /// The content BLOB is canonical plaintext, including attachment keys and metadata. Use an access-controlled,
 /// platform-protected database location; SQLite does not provide encryption at rest by itself.
 /// </remarks>
-public sealed class SqliteChatEventStore : IChatEventStore, IDisposable
+public sealed class SqliteChatEventStore : IChatEventStore, IPagedChatEventStore, IDisposable
 {
     private const int SchemaVersion = 1;
     private const int BusyTimeoutMilliseconds = 5_000;
@@ -195,6 +196,81 @@ public sealed class SqliteChatEventStore : IChatEventStore, IDisposable
     }
 
     /// <inheritdoc />
+    public async ValueTask<ChatEventPage> ReadPreviousPageAsync(
+        ConversationId conversationId,
+        string? beforeCursor = null,
+        int maximumCount = 50,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (conversationId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Conversation ID must not be empty.", nameof(conversationId));
+        }
+
+        if (maximumCount is < 1 or > ChatEventPagingLimits.MaxPageSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount));
+        }
+
+        var beforeSequence = DecodeCursor(beforeCursor);
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = beforeSequence.HasValue
+            ? """
+                SELECT sequence, delivery_message_id, conversation_id, sender_user_id, sender_device_id,
+                       sent_at_utc_ticks, content_id, content, length(content)
+                FROM chat_events
+                WHERE conversation_id = $conversation AND sequence < $before
+                ORDER BY sequence DESC
+                LIMIT $limit;
+                """
+            : """
+                SELECT sequence, delivery_message_id, conversation_id, sender_user_id, sender_device_id,
+                       sent_at_utc_ticks, content_id, content, length(content)
+                FROM chat_events
+                WHERE conversation_id = $conversation
+                ORDER BY sequence DESC
+                LIMIT $limit;
+                """;
+        AddBlob(command, "$conversation", ToBytes(conversationId.Value));
+        command.Parameters.AddWithValue("$limit", maximumCount + 1);
+        if (beforeSequence.HasValue)
+        {
+            command.Parameters.AddWithValue("$before", beforeSequence.Value);
+        }
+
+        try
+        {
+            var descending = new List<StoredRow>(maximumCount + 1);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                descending.Add(ReadStoredRow(reader));
+            }
+
+            var hasOlder = descending.Count > maximumCount;
+            var chronological = descending.Take(maximumCount).Reverse().ToArray();
+            return new ChatEventPage(
+                chronological.Select(item => item.Delivery).ToArray(),
+                hasOlder && chronological.Length > 0 ? EncodeCursor(chronological[0].Sequence) : null);
+        }
+        catch (ChatEventStorageException)
+        {
+            throw;
+        }
+        catch (SqliteException exception)
+        {
+            throw StorageFailure(exception);
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or InvalidCastException)
+        {
+            throw new ChatEventStorageException("The local chat event database is corrupt.", exception);
+        }
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed)
@@ -265,35 +341,7 @@ public sealed class SqliteChatEventStore : IChatEventStore, IDisposable
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (reader.GetInt64(8) is < 1 or > ProtocolLimits.MaxPlaintextBytes)
-                {
-                    throw new ChatEventStorageException("The local chat event database is corrupt.");
-                }
-
-                var encoded = reader.GetFieldValue<byte[]>(7);
-                try
-                {
-                    var content = ChatContentEncoding.Decode(encoded);
-                    var storedContentId = ReadGuid(reader, 6);
-                    if (content.ContentId.Value != storedContentId)
-                    {
-                        throw new ChatEventStorageException("The local chat event database is corrupt.");
-                    }
-
-                    result.Add(new StoredRow(
-                        reader.GetInt64(0),
-                        new ReceivedChatContent(
-                            new MessageId(ReadGuid(reader, 1)),
-                            new ConversationId(ReadGuid(reader, 2)),
-                            new UserId(ReadGuid(reader, 3)),
-                            new DeviceId(ReadGuid(reader, 4)),
-                            new DateTimeOffset(reader.GetInt64(5), TimeSpan.Zero),
-                            content)));
-                }
-                finally
-                {
-                    CryptographicOperations.ZeroMemory(encoded);
-                }
+                result.Add(ReadStoredRow(reader));
             }
 
             return result;
@@ -392,6 +440,84 @@ public sealed class SqliteChatEventStore : IChatEventStore, IDisposable
         }
 
         return new Guid(bytes, bigEndian: true);
+    }
+
+    private static StoredRow ReadStoredRow(SqliteDataReader reader)
+    {
+        if (reader.GetInt64(8) is < 1 or > ProtocolLimits.MaxPlaintextBytes)
+        {
+            throw new ChatEventStorageException("The local chat event database is corrupt.");
+        }
+
+        var encoded = reader.GetFieldValue<byte[]>(7);
+        try
+        {
+            var content = ChatContentEncoding.Decode(encoded);
+            var storedContentId = ReadGuid(reader, 6);
+            if (content.ContentId.Value != storedContentId)
+            {
+                throw new ChatEventStorageException("The local chat event database is corrupt.");
+            }
+
+            return new StoredRow(
+                reader.GetInt64(0),
+                new ReceivedChatContent(
+                    new MessageId(ReadGuid(reader, 1)),
+                    new ConversationId(ReadGuid(reader, 2)),
+                    new UserId(ReadGuid(reader, 3)),
+                    new DeviceId(ReadGuid(reader, 4)),
+                    new DateTimeOffset(reader.GetInt64(5), TimeSpan.Zero),
+                    content));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(encoded);
+        }
+    }
+
+    private static string EncodeCursor(long sequence)
+    {
+        Span<byte> bytes = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(bytes, sequence);
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static long? DecodeCursor(string? cursor)
+    {
+        if (cursor is null)
+        {
+            return null;
+        }
+
+        if (cursor.Length is 0 or > ChatEventPagingLimits.MaxCursorCharacters ||
+            cursor.Any(character =>
+                !(character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '-' or '_')))
+        {
+            throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
+        }
+
+        var padded = cursor.Replace('-', '+').Replace('_', '/');
+        padded += new string('=', (4 - padded.Length % 4) % 4);
+        try
+        {
+            var bytes = Convert.FromBase64String(padded);
+            if (bytes.Length != 8)
+            {
+                throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
+            }
+
+            var sequence = BinaryPrimitives.ReadInt64BigEndian(bytes);
+            if (sequence <= 0 || !string.Equals(EncodeCursor(sequence), cursor, StringComparison.Ordinal))
+            {
+                throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
+            }
+
+            return sequence;
+        }
+        catch (FormatException)
+        {
+            throw new ArgumentException("The history cursor is invalid.", nameof(cursor));
+        }
     }
 
     private static byte[] ToBytes(Guid value)

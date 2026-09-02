@@ -161,6 +161,7 @@ Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external data
 - `docs/adr/0012-client-media-preparation.md` defines client-only photo/video transformation, send modes, plaintext work files and unchanged content-v2 compatibility.
 - `docs/adr/0013-encrypted-message-edits.md` defines content-v3 edit bytes, author checks, deterministic folding and UI edit semantics.
 - `docs/adr/0014-durable-client-events-and-sync.md` defines verified local history, SQLite plaintext storage and store/apply/ack ordering.
+- `docs/adr/0016-maui-client-orchestration.md` defines MAUI endpoint boundaries, exact multi-device outbox retries, bounded paging and native UI responsibilities.
 
 Update documentation in the same change when public APIs, package boundaries, protocol behavior, security assumptions, deployment responsibilities, migrations, or verification commands change.
 
@@ -173,7 +174,7 @@ Before a requested release or version commit:
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly sixteen versioned `.nupkg` and sixteen matching `.snupkg` files were produced in `artifacts/packages`, run the package consumer, and ensure the working tree is clean.
+6. Confirm exactly eighteen versioned `.nupkg` and eighteen matching `.snupkg` files were produced in `artifacts/packages`, run both core and MAUI package consumers, and ensure the working tree is clean.
 
 Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 

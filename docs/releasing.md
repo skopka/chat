@@ -1,6 +1,6 @@
 # Releasing Skopka.Chat packages
 
-Skopka.Chat follows the coordinated NuGet publication model used by the maintained `Skopka.*` package families. One version represents all sixteen packages and is immutable once any member reaches NuGet.org.
+Skopka.Chat follows the coordinated NuGet publication model used by the maintained `Skopka.*` package families. One version represents all eighteen packages and is immutable once any member reaches NuGet.org.
 
 ## One-time repository configuration
 
@@ -17,8 +17,8 @@ Do not store the NuGet key in repository secrets, local files, shell history, wo
 
 1. Set `VersionPrefix` in `Directory.Build.props` to the intended stable base version.
 2. Update the README release summary, protocol compatibility table, security/limitation documents, and ADRs.
-3. Run formatting, Release build, the complete infrastructure-free suite, all required disposable-PostgreSQL gates, fuzz corpus replay/AFL++ smoke, dependency audit, pack, and package-consumer validation.
-4. Commit the release state and recreate packages after the commit. Verify the `.nuspec` repository SHA, sixteen `.nupkg` files, and sixteen `.snupkg` files.
+3. Run formatting, Release build, the complete infrastructure-free suite, all required disposable-PostgreSQL gates, fuzz corpus replay/AFL++ smoke, dependency audit, the Windows/macOS MAUI matrix, pack, and both package-consumer validations.
+4. Commit the release state and recreate packages after the commit. Verify the `.nuspec` repository SHA, eighteen `.nupkg` files, and eighteen `.snupkg` files.
 5. Push the commit to `main` and wait for CI to succeed.
 
 The checked-in CI/release gates set `SKOPKA_CHAT_POSTGRES_TESTCONTAINERS=true` and start a pinned disposable PostgreSQL per test assembly. `SKOPKA_CHAT_POSTGRES` remains an external disposable-database override for environments that cannot expose Docker to the test process.
@@ -34,24 +34,27 @@ Package IDs are published in dependency order:
 7. `Skopka.Chat.Client.Storage.Sqlite`
 8. `Skopka.Chat.Media`
 9. `Skopka.Chat.Media.FFmpeg`
-10. `Skopka.Chat.UI.Core`
-11. `Skopka.Chat.UI.Blazor`
-12. `Skopka.Chat.Server`
-13. `Skopka.Chat.Transport.Http`
-14. `Skopka.Chat.Client.Http`
-15. `Skopka.Chat.Persistence.PostgreSql`
-16. `Skopka.Chat.Server.AspNetCore`
+10. `Skopka.Chat.Client.Maui`
+11. `Skopka.Chat.UI.Core`
+12. `Skopka.Chat.UI.Blazor`
+13. `Skopka.Chat.UI.Maui`
+14. `Skopka.Chat.Server`
+15. `Skopka.Chat.Transport.Http`
+16. `Skopka.Chat.Client.Http`
+17. `Skopka.Chat.Persistence.PostgreSql`
+18. `Skopka.Chat.Server.AspNetCore`
 
 ## Triggering publication
 
-Publication is intentionally tag-only. After explicit approval to publish, create a signed or annotated `v<SemVer>` tag on the validated `main` commit and push that tag. Examples of accepted shapes are `v0.11.0` and `v0.11.0-rc.1`; build metadata is rejected.
+Publication is intentionally tag-only. After explicit approval to publish, create a signed or annotated `v<SemVer>` tag on the validated `main` commit and push that tag. Examples of accepted shapes are `v0.13.0` and `v0.13.0-rc.1`; build metadata is rejected.
 
 The release workflow then:
 
 - proves the tag commit belongs to `main`;
 - validates SemVer and matches its stable base to `VersionPrefix`;
-- repeats formatting, build, tests, PostgreSQL gates, fuzz smoke, dependency audit, packing, and package-consumer execution;
-- verifies the exact sixteen-package and sixteen-symbol-package set;
+- repeats formatting, core build/tests, PostgreSQL gates, fuzz smoke and dependency audit on Linux;
+- builds/tests/packs the MAUI packages on Windows, verifies Android/Windows sample builds, all four package assets and the Android package consumer; the commit must also have passed the CI iOS/Mac Catalyst and trimming gate;
+- combines artifacts and verifies the exact eighteen-package and eighteen-symbol-package set;
 - refuses to start if any package ID already owns that version on NuGet.org;
 - uploads immutable artifacts, enters the protected `release` environment, and pushes packages in dependency order;
 - waits until every package is visible on NuGet.org;

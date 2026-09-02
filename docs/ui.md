@@ -1,15 +1,17 @@
 # Adaptable UI
 
-`Skopka.Chat.UI.Core` and `Skopka.Chat.UI.Blazor` are optional client-side packages. They never run on the server and do not change the protocol-v1 envelope. Their timeline projects content-v1 text/reactions, content-v2 attachment manifests and author-validated content-v3 edits already authenticated by Client.
+`Skopka.Chat.UI.Core`, `Skopka.Chat.UI.Blazor` and `Skopka.Chat.UI.Maui` are optional client-side packages. They never run on the server and do not change the protocol-v1 envelope. Their timeline projects content-v1 text/reactions, content-v2 attachment manifests and author-validated content-v3 edits already authenticated by Client.
 
 ## Package boundary
 
 ```mermaid
 flowchart LR
     Blazor[Skopka.Chat.UI.Blazor] --> Core[Skopka.Chat.UI.Core]
+    Maui[Skopka.Chat.UI.Maui] --> Core
     Core --> Client[Skopka.Chat.Client]
     Client --> Protocol[Skopka.Chat.Protocol]
     Host[Host application] --> Blazor
+    Host --> Maui
     Host --> Sender[IChatContentSender implementation]
     Sender --> Client
     Sender --> Transport[IChatTransport / host transport]
@@ -17,12 +19,12 @@ flowchart LR
 
 `ChatViewModel` owns an in-memory `Timeline` containing text and attachment items, a legacy text-only `Messages` view, bounded composer draft, reply/edit target and generic command-failure state. It accepts only `ReceivedChatContent`, so a host should call `ChatReceiver.ReceiveContentAsync` before `Apply`. It does not decrypt envelopes/files, upload ciphertext, enumerate devices, choose a transport, store history or log failures.
 
-The host implements `IChatContentSender`. For one logical event it must:
+`IChatContentSender` is the replaceable host boundary. The repository's standard `MultiDeviceChatContentSender` composes `ChatMultiDeviceSender` and a local-echo committer. For one logical event that path:
 
 1. keep the supplied `ChatContentId` stable;
-2. enumerate current recipient devices through an authenticated directory;
+2. enumerates current active peer and sibling devices through the authenticated directory;
 3. create a distinct `MessageId` and encrypted envelope for each device;
-4. submit the envelopes with normal idempotency handling;
+4. stores the exact plan before network I/O and submits the envelopes with normal idempotency handling;
 5. return `ChatContentSendResult.Success` with a matching authenticated local echo, or `ChatContentSendResult.Failed` for an expected bounded failure.
 
 Unexpected programming failures and caller cancellation may still throw. Do not copy remote response bodies, plaintext or access tokens into exception messages or telemetry.
@@ -105,6 +107,27 @@ The package uses CSS isolation. A normal Blazor application includes referenced-
 
 The standard composer shows a photo/video picker only when `AttachmentSender` is supplied. Its unchecked default uses media `Auto` mode; the user can select “Send as file” for byte-exact `File` mode. The callback owns browser stream limits and maps the selection to `Skopka.Chat.Media`; see [media.md](media.md) for the prepare → encrypt → upload example. Applications can omit the callback or replace `ComposerTemplate` to provide a different picker and policy.
 
+## MAUI control
+
+`SkopkaChatView` is the native equivalent over the same `ChatViewModel`:
+
+```xml
+<chat:SkopkaChatView
+    ViewModel="{Binding Chat}"
+    Strings="{Binding ChatStrings}"
+    ReactionChoices="{Binding Reactions}"
+    ForwardRequested="{Binding ForwardRequested}"
+    AttachmentSendRequested="{Binding AttachmentSendRequested}"
+    AttachmentDownloadRequested="{Binding AttachmentDownloadRequested}"
+    LoadOlderRequested="{Binding LoadOlderRequested}" />
+```
+
+The default timeline is a virtualized `CollectionView`. `MauiChatPresentation` keeps wrapper identities stable by `ChatContentId`, updates them on the MAUI dispatcher and reports prepend/change information so the view can preserve the scroll anchor or auto-scroll only when the user is already near the end. XAML uses compiled bindings; custom data templates should declare their own `x:DataType` to keep trimming/AOT behavior predictable.
+
+The control exposes `MessageTemplate`, `AttachmentTemplate`, `ComposerTemplate` and `EmptyTemplate`, localized `MauiChatStrings`, reaction commands and overridable light/dark resources. Default bubbles include reply, forward, reaction, edit and authenticated-download actions. All file, forward and page-loading operations are host callbacks with generic failure state. A callback never causes an attachment URI/path to be opened automatically.
+
+History remains outside UI. A MAUI host normally connects `LoadOlderRequested` to `ChatHistoryPager.LoadPreviousAsync` and gives `ChatSyncCoordinator` the same idempotent projection registry. See [maui.md](maui.md) for lifecycle, SecureStorage and file handling.
+
 ## Replacement levels
 
 - `MessageTemplate` replaces every message bubble while retaining the standard timeline and composer.
@@ -113,12 +136,12 @@ The standard composer shows a photo/video picker only when `AttachmentSender` is
 - `EmptyTemplate` replaces the empty state.
 - `SenderLabel` and `TimeFormatter` control identity and timestamp presentation.
 - `ReactionChoices`, edit labels/markers in `SkopkaChatStrings`, CSS variables and `AdditionalAttributes` customize the standard components.
-- An application can ignore `Skopka.Chat.UI.Blazor` entirely and bind MAUI, Avalonia, native or custom web controls directly to `ChatViewModel`.
+- An application can ignore both framework adapters and bind Avalonia, another native toolkit or custom web controls directly to `ChatViewModel`.
 
 Templates receive decrypted managed strings. Razor text expressions HTML-encode by default; using `MarkupString`, raw DOM APIs or third-party renderers makes escaping the host's responsibility.
 
 ## Deliberate limits
 
-The components are a conversation surface, not a product shell. They do not provide routing, authentication, contacts, conversation selection, device verification dialogs, protected history, notifications, virtualization, automatic attachment previews or offline synchronization. The default attachment card never embeds remote media; the host retrieves and authenticates it. The default forward action raises a callback so the host can choose a target conversation; it never invents one, and attachment forwarding is not implemented.
+The components are a conversation surface, not a product shell. They do not provide routing, authentication, contacts, conversation selection, device verification dialogs, protected history, notifications, push/background execution, automatic attachment previews or cross-device history synchronization. MAUI provides timeline virtualization; Blazor intentionally remains a simpler adaptable surface. The default attachment card never embeds remote media; the host retrieves and authenticates it. The default forward action raises a callback so the host can choose a target conversation; it never invents one, and attachment forwarding is not implemented.
 
 Drafts, edit buffers, pre-edit composer state, reply previews and projected messages are plaintext managed strings and cannot be reliably zeroed. Keep component lifetime and browser/server logs bounded, use protected local persistence where needed, review Blazor Server circuit exposure, and never treat E2EE as local-at-rest protection.

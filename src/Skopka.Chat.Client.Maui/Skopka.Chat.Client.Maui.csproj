@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('linux'))">net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <PackageId>Skopka.Chat.Client.Maui</PackageId>
+    <IsPackable Condition="$([MSBuild]::IsOSPlatform('linux'))">false</IsPackable>
+    <Description>.NET MAUI secure storage, lifecycle and protected file adapters for Skopka.Chat clients.</Description>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+    <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <WindowsPackageType Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">None</WindowsPackageType>
+    <Win2DWarnNoPlatform Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">false</Win2DWarnNoPlatform>
+    <AppxGeneratePriEnabled Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">false</AppxGeneratePriEnabled>
+    <AppxGeneratePrisForPortableLibrariesEnabled Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">false</AppxGeneratePrisForPortableLibrariesEnabled>
+    <AppxGetPackagePropertiesEnabled Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">false</AppxGetPackagePropertiesEnabled>
+    <IncludeProjectPriFile Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">false</IncludeProjectPriFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Client.Storage\Skopka.Chat.Client.Storage.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Media\Skopka.Chat.Media.csproj" />
+    <PackageReference Include="Microsoft.Maui.Essentials" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,2 @@
+10
+{"items":[{"userId":"20000000-0000-0000-0000-000000000002","deviceId":"40000000-0000-0000-0000-000000000004","keyId":"50000000-0000-0000-0000-000000000005","encryptionPublicKey":"ERERERERERERERERERERERERERERERERERERERERERE=","signingPublicKey":"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=","registeredAt":"2026-09-02T12:00:00+00:00","revokedAt":null}],"nextCursor":null}
