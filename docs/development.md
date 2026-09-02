@@ -128,7 +128,7 @@ Dependency audit follows the same platform boundary. Linux audits the thirty-two
 
 ## Coverage-guided JSON fuzzing
 
-The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of eleven targets: ten shared HTTP contracts (including personal-conversation and device-directory pages) or the authenticated versioned-content decoder (v1 text/reaction, v2 attachments and v3 edits). Successful HTTP values and typed content are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; other exceptions fail the run.
+The `Skopka.Chat.FuzzTests` executable accepts bounded byte streams and selects one of sixteen targets: fourteen shared HTTP contracts (including directory pages and device binding), the authenticated versioned-content decoder (v1 text/reaction, v2 attachments and v3 edits), or the canonical binding-v1 decoder. Successful HTTP values, typed content and binding challenges are round-tripped. `JsonException`, `ProtocolValidationException` and `ChatContentFormatException` are expected rejection outcomes; binding targets also accept their documented `ArgumentException` validation failures. Other exceptions fail the run.
 
 Replay committed seeds and minimized regressions on any platform:
 
@@ -142,7 +142,7 @@ Run a coverage-guided session on Linux after installing AFL++:
 bash eng/run-json-fuzz-smoke.sh 60 artifacts/fuzz-local
 ```
 
-The second argument is a new output directory; the script refuses to overwrite an existing path. It builds and instruments isolated HTTP-contract and Client DLL copies with the repo-local SharpFuzz tool, so release binaries remain untouched. Minimize any crash input, add it to `tests/Skopka.Chat.FuzzTests/corpus`, add a focused regression test when possible, and only then fix the defect.
+The second argument is a new output directory; the script refuses to overwrite an existing path. It builds and instruments isolated Protocol, HTTP-contract and Client DLL copies with the repo-local SharpFuzz tool, so release binaries remain untouched. Protocol instrumentation is required for canonical binding seeds, which need not enter either of the other assemblies; AFL++ must observe coverage during the dry run of every seed. Minimize any crash input, add it to `tests/Skopka.Chat.FuzzTests/corpus`, add a focused regression test when possible, and only then fix the defect.
 
 ## Making a change
 
