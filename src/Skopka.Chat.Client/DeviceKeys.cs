@@ -48,6 +48,11 @@ public sealed class DeviceKeyMaterial
 /// <summary>Host-provided protected storage for private device keys.</summary>
 public interface IDeviceKeyStore
 {
+    /// <summary>Atomically creates keys only when absent. Persistent identity creation requires this capability.</summary>
+    /// <remarks>Existing custom stores remain load-compatible; implement this method before creating new identities.</remarks>
+    ValueTask<bool> TryCreateAsync(DeviceKeyMaterial material, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("The key store does not support atomic identity creation.");
+
     /// <summary>Saves or atomically replaces one device key record.</summary>
     ValueTask SaveAsync(DeviceKeyMaterial material, CancellationToken cancellationToken = default);
 
@@ -62,6 +67,14 @@ public interface IDeviceKeyStore
 public sealed class InMemoryDeviceKeyStore : IDeviceKeyStore
 {
     private readonly ConcurrentDictionary<DeviceId, DeviceKeyMaterial> _keys = new();
+
+    /// <inheritdoc />
+    public ValueTask<bool> TryCreateAsync(DeviceKeyMaterial material, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(material);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(_keys.TryAdd(material.DeviceId, Clone(material)));
+    }
 
     /// <inheritdoc />
     public ValueTask SaveAsync(DeviceKeyMaterial material, CancellationToken cancellationToken = default)
@@ -115,13 +128,17 @@ public sealed class DeviceIdentityService
         _keyStore = keyStore ?? throw new ArgumentNullException(nameof(keyStore));
 
     /// <summary>Generates, persists and returns public data for a new device.</summary>
-    public async ValueTask<PublicDevice> CreateAsync(
+    public ValueTask<PublicDevice> CreateAsync(
         UserId userId,
         DeviceId deviceId,
         DateTimeOffset registeredAt,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(userId, deviceId, KeyId.New(), registeredAt, cancellationToken);
+
+    internal async ValueTask<PublicDevice> CreateAsync(UserId userId, DeviceId deviceId, KeyId keyId,
+        DateTimeOffset registeredAt, CancellationToken cancellationToken)
     {
-        if (userId.Value == Guid.Empty || deviceId.Value == Guid.Empty)
+        if (userId.Value == Guid.Empty || deviceId.Value == Guid.Empty || keyId.Value == Guid.Empty || registeredAt == default)
         {
             throw new ArgumentException("User and device identifiers must not be empty.");
         }
@@ -129,14 +146,16 @@ public sealed class DeviceIdentityService
         var parameters = new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextArchiving };
         using var encryptionKey = Key.Create(Agreement, parameters);
         using var signingKey = Key.Create(Signature, parameters);
-        var keyId = KeyId.New();
         var encryptionPrivate = encryptionKey.Export(KeyBlobFormat.NSecPrivateKey);
         var signingPrivate = signingKey.Export(KeyBlobFormat.NSecPrivateKey);
 
         try
         {
             var material = new DeviceKeyMaterial(userId, deviceId, keyId, encryptionPrivate, signingPrivate);
-            await _keyStore.SaveAsync(material, cancellationToken).ConfigureAwait(false);
+            if (!await _keyStore.TryCreateAsync(material, cancellationToken).ConfigureAwait(false))
+            {
+                throw new ChatCryptographicException("Device identity already exists; keys were not replaced.");
+            }
         }
         finally
         {
@@ -173,6 +192,11 @@ public sealed class DeviceIdentityService
             return null;
         }
 
+        return DerivePublic(material, userId, deviceId, registeredAt);
+    }
+
+    internal static PublicDevice DerivePublic(DeviceKeyMaterial material, UserId userId, DeviceId deviceId, DateTimeOffset registeredAt)
+    {
         if (material.UserId != userId || material.DeviceId != deviceId || material.KeyId.Value == Guid.Empty)
         {
             throw new ChatCryptographicException("Stored device identity does not match the authenticated session.");
@@ -194,7 +218,7 @@ public sealed class DeviceIdentityService
             ProtocolValidator.Validate(device);
             return device;
         }
-        catch (Exception exception) when (exception is ArgumentException or CryptographicException)
+        catch (Exception exception) when (exception is ArgumentException or CryptographicException or FormatException)
         {
             throw new ChatCryptographicException("Stored device identity is corrupt or incompatible.");
         }

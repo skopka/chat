@@ -10,12 +10,22 @@ using Skopka.Chat.Media.FFmpeg;
 using Skopka.Chat.Persistence.PostgreSql;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
+using Skopka.Chat.Server.NSec;
 using Skopka.Chat.Server.AspNetCore;
 using Skopka.Chat.Transport.Http;
 using Skopka.Chat.UI;
 using Skopka.Chat.UI.Blazor;
 
 var typedContent = new ChatTextContent(ChatContentId.New(), "package consumer");
+var keys = new InMemoryDeviceKeyStore();
+var now = TimeProvider.System.GetUtcNow();
+var device = await new DeviceIdentityService(keys).CreateAsync(UserId.New(), DeviceId.New(), now);
+var account = new DeviceAuthorizationContext("consumer.example.test", device.UserId, "synthetic-session", now.AddHours(1));
+var store = new InMemoryServerStore();
+var bindingService = new DeviceBindingService(store, store, new NSecDeviceProofVerifier(), TimeProvider.System);
+var challenge = await bindingService.IssueAsync(account, DeviceBindingOperation.Enrollment, device);
+var proof = await new DeviceBindingProofService(keys, TimeProvider.System).CreateProofAsync(challenge, account, device, challenge.Operation);
+_ = await bindingService.CompleteAsync(account, proof);
 _ = ChatContentEncoding.Decode(ChatContentEncoding.Encode(typedContent));
 _ = ChatContentEncoding.Decode(ChatContentEncoding.Encode(
     new ChatEditContent(ChatContentId.New(), typedContent.ContentId, ChatEditField.Text, "edited")));
@@ -42,6 +52,7 @@ Type[] packageSurfaces =
     typeof(SkopkaChatHttpRoutes),
     typeof(SkopkaChatHttpClient),
     typeof(ChatServerEngine),
+    typeof(NSecDeviceProofVerifier),
     typeof(SkopkaChatEndpointRouteBuilderExtensions),
     typeof(ChatDbContext)
 ];
@@ -51,8 +62,8 @@ var assemblies = packageSurfaces
     .Select(name => $"{name.Name} {name.Version}")
     .ToArray();
 
-if (assemblies.Length != 16 ||
-    assemblies.Distinct(StringComparer.Ordinal).Count() != 16 ||
+if (assemblies.Length != 17 ||
+    assemblies.Distinct(StringComparer.Ordinal).Count() != 17 ||
     assemblies.Any(string.IsNullOrWhiteSpace))
 {
     throw new InvalidOperationException(

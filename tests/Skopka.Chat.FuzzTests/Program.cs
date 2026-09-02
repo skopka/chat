@@ -102,7 +102,7 @@ internal static class ChatFuzzTarget
                 case 9:
                     RoundTrip(json, SkopkaChatHttpJsonContext.Default.ConversationDirectoryResponse);
                     break;
-                default:
+                case 10:
                     var devices = RoundTrip(json, SkopkaChatHttpJsonContext.Default.DeviceDirectoryResponse);
                     if (devices is not null)
                     {
@@ -112,6 +112,22 @@ internal static class ChatFuzzTarget
                         }
                     }
 
+                    break;
+                case 11:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.DeviceBindingIssueRequest);
+                    break;
+                case 12:
+                    _ = RoundTrip(json, SkopkaChatHttpJsonContext.Default.DeviceBindingChallengeResponse)?.ToDomain();
+                    break;
+                case 13:
+                    _ = RoundTrip(json, SkopkaChatHttpJsonContext.Default.DeviceBindingCompleteRequest)?.ToDomain();
+                    break;
+                case 14:
+                    _ = RoundTrip(json, SkopkaChatHttpJsonContext.Default.DeviceBindingResultResponse)?.ToDomain();
+                    break;
+                default:
+                    var challenge = DeviceBindingEncoding.Decode(DecodeContentSeed(json));
+                    _ = DeviceBindingEncoding.Decode(DeviceBindingEncoding.Encode(challenge));
                     break;
             }
         }
@@ -126,6 +142,10 @@ internal static class ChatFuzzTarget
         catch (ChatContentFormatException)
         {
             // Malformed or unsupported authenticated content is an expected fuzz outcome.
+        }
+        catch (ArgumentException) when (selector >= 11)
+        {
+            // Binding-v1 uses bounded generic argument failures for invalid canonical values.
         }
     }
 
@@ -158,13 +178,13 @@ internal static class ChatFuzzTarget
                 value = (value * 10) + input[index] - (byte)'0';
             }
 
-            if (value is >= 0 and <= 10)
+            if (value is >= 0 and <= 15)
             {
                 return (byte)value;
             }
         }
 
-        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 11);
+        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 16);
     }
 
     private static byte[] DecodeContentSeed(ReadOnlySpan<byte> value)

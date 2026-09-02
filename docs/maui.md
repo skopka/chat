@@ -26,6 +26,7 @@ The macOS CI gate builds and natively links an unsigned iOS ARM64 device app and
 
 ## Client composition
 
+For persistent identity in `0.14.x`, first follow [device identity and binding](device-identity.md). Load the scoped identity, obtain the independently trusted account/session context, enroll/rebind with proof, then start the services below. DeviceId is not taken from sid. Use the same protected history/outbox paths after every login. The existing sample session composition remains an explicitly host-supplied identity boundary, not an Auth implementation.
 A normal session performs these steps:
 
 1. obtain authenticated `UserId`/`DeviceId`, peer identity and HTTPS endpoint from the host account/session provider;
@@ -42,6 +43,7 @@ The sender stores the exact recipient-specific ciphertext plan before any networ
 
 ## Secure storage and local plaintext
 
+`SecureStorageDeviceIdentityStore` adds bounded versioned metadata with an exclusive initialization lease. Use the full `DeviceIdentityScope` overload of `SecureStorageDeviceKeyStore` and injected `FileIdentityStorageLock` for new integrations; both metadata and keys are isolated by service/account/installation. The old user-only overload remains for legacy loading/import. Missing/corrupt/unavailable/revoked states never cause implicit key replacement. Logout only disposes `MauiChatSession`; forgetting metadata/keys, deleting history and remote device revocation are separate host decisions.
 `SecureStorageDeviceKeyStore` and `SecureStorageDeviceTrustStore` use an injected `ISecureStorage`. Their records are versioned, bounded and namespaced by account/device. Corrupt or inaccessible records fail with generic storage exceptions; missing key material is never silently replaced because that would look like an unexplained identity-key change.
 
 MAUI SecureStorage is a platform adapter, not a backup protocol. The host must review Android Auto Backup behavior and exclusions, iOS Keychain persistence/entitlements, uninstall/restore/account-switch behavior and device-lock policy for its deployment. A restore can make a protected record unavailable or inconsistent with a freshly installed app; treat that as a recovery flow, not permission to generate a replacement invisibly.

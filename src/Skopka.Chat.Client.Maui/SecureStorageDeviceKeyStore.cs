@@ -6,12 +6,14 @@ using Skopka.Chat.Protocol;
 namespace Skopka.Chat.Client.Maui;
 
 /// <summary>Raised for unavailable or corrupt platform key storage without exposing key material.</summary>
-public sealed class DeviceKeyStorageException : Exception
+public sealed class DeviceKeyStorageException : DeviceIdentityStorageException
 {
     /// <summary>Creates a bounded key-storage failure.</summary>
-    public DeviceKeyStorageException(string message) : base(message)
+    public DeviceKeyStorageException(string message) : base(PersistentDeviceIdentityState.Unavailable, message)
     {
     }
+
+    internal DeviceKeyStorageException(PersistentDeviceIdentityState state) : base(state) { }
 }
 
 /// <summary>Versioned private device-key persistence over an injected MAUI secure storage instance.</summary>
@@ -28,6 +30,7 @@ public sealed class SecureStorageDeviceKeyStore : IDeviceKeyStore
     private readonly ISecureStorage _secureStorage;
     private readonly UserId _userId;
     private readonly string _keyPrefix;
+    private readonly IIdentityStorageLock _storageLock;
 
     /// <summary>Creates a user-isolated adapter without using a global secure-storage singleton.</summary>
     public SecureStorageDeviceKeyStore(ISecureStorage secureStorage, UserId userId)
@@ -40,12 +43,40 @@ public sealed class SecureStorageDeviceKeyStore : IDeviceKeyStore
 
         _userId = userId;
         _keyPrefix = $"skopka.chat.keys.v1.{userId.Value:N}.";
+        _storageLock = new ProcessIdentityStorageLock();
+    }
+
+    /// <summary>Creates a service/account/installation-isolated store with an explicit cross-process lock.</summary>
+    public SecureStorageDeviceKeyStore(ISecureStorage secureStorage, DeviceIdentityScope scope, IIdentityStorageLock storageLock)
+    {
+        _secureStorage = secureStorage ?? throw new ArgumentNullException(nameof(secureStorage));
+        ArgumentNullException.ThrowIfNull(scope);
+        _storageLock = storageLock ?? throw new ArgumentNullException(nameof(storageLock));
+        _userId = scope.UserId;
+        _keyPrefix = $"skopka.chat.keys.v2.{scope.StoragePartition}.";
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<bool> TryCreateAsync(DeviceKeyMaterial material, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(material);
+        await using var lease = await AcquireKeyLockAsync(material.DeviceId, cancellationToken).ConfigureAwait(false);
+        if (await LoadAsync(material.DeviceId, cancellationToken).ConfigureAwait(false) is not null) { return false; }
+        await SaveCoreAsync(material, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     /// <inheritdoc />
     public async ValueTask SaveAsync(
         DeviceKeyMaterial material,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(material);
+        await using var lease = await AcquireKeyLockAsync(material.DeviceId, cancellationToken).ConfigureAwait(false);
+        await SaveCoreAsync(material, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask SaveCoreAsync(DeviceKeyMaterial material, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(material);
         cancellationToken.ThrowIfCancellationRequested();
@@ -75,8 +106,8 @@ public sealed class SecureStorageDeviceKeyStore : IDeviceKeyStore
             try
             {
                 await _secureStorage.SetAsync(StorageKey(material.DeviceId), encoded)
-                    .WaitAsync(cancellationToken)
                     .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -156,7 +187,7 @@ public sealed class SecureStorageDeviceKeyStore : IDeviceKeyStore
     }
 
     /// <inheritdoc />
-    public ValueTask DeleteAsync(DeviceId deviceId, CancellationToken cancellationToken = default)
+    public async ValueTask DeleteAsync(DeviceId deviceId, CancellationToken cancellationToken = default)
     {
         if (deviceId.Value == Guid.Empty)
         {
@@ -164,10 +195,11 @@ public sealed class SecureStorageDeviceKeyStore : IDeviceKeyStore
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        await using var lease = await AcquireKeyLockAsync(deviceId, cancellationToken).ConfigureAwait(false);
         try
         {
             _secureStorage.Remove(StorageKey(deviceId));
-            return ValueTask.CompletedTask;
+            return;
         }
         catch (Exception)
         {
@@ -234,6 +266,9 @@ public sealed class SecureStorageDeviceKeyStore : IDeviceKeyStore
 
     private string StorageKey(DeviceId deviceId) => $"{_keyPrefix}{deviceId.Value:N}";
 
+    private ValueTask<IAsyncDisposable> AcquireKeyLockAsync(DeviceId deviceId, CancellationToken cancellationToken) =>
+        _storageLock.AcquireAsync(Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(StorageKey(deviceId)))), cancellationToken);
+
     private static void WriteGuid(Span<byte> destination, Guid value)
     {
         if (value == Guid.Empty || !value.TryWriteBytes(destination, bigEndian: true, out var written) || written != 16)
@@ -243,5 +278,5 @@ public sealed class SecureStorageDeviceKeyStore : IDeviceKeyStore
     }
 
     private static DeviceKeyStorageException Corrupt() =>
-        new("Protected device key storage is corrupt or incompatible.");
+        new(PersistentDeviceIdentityState.Corrupt);
 }

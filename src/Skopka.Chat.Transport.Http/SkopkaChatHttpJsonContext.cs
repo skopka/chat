@@ -26,6 +26,10 @@ namespace Skopka.Chat.Transport.Http;
 [JsonSerializable(typeof(EncryptedEnvelopeDto))]
 [JsonSerializable(typeof(PendingDeliveryResponse[]))]
 [JsonSerializable(typeof(SubmitEnvelopeResponse))]
+[JsonSerializable(typeof(DeviceBindingIssueRequest))]
+[JsonSerializable(typeof(DeviceBindingChallengeResponse))]
+[JsonSerializable(typeof(DeviceBindingCompleteRequest))]
+[JsonSerializable(typeof(DeviceBindingResultResponse))]
 public sealed partial class SkopkaChatHttpJsonContext : JsonSerializerContext;
 
 /// <summary>Applies the strict JSON profile used by the Skopka.Chat HTTP boundary.</summary>

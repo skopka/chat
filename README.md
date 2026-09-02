@@ -22,10 +22,25 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
 - `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses, потоковая загрузка/расшифровка attachments и ограниченные retries идемпотентных операций; без ссылки на Server.
 - `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
+- `Skopka.Chat.Server.NSec` — optional Ed25519 verifier для device-binding proof через существующий NSec; без private keys/decryption API и без зависимости Server → Client.
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.13.0` сохраняет protocol v1 и content v1/v2/v3 bytes. Она добавляет уникальный personal-conversation directory, recipient-device discovery, retry-safe multi-device fan-out, durable SQLite outbox/history paging и необязательные MAUI client/UI-пакеты. Серверные storage по-прежнему получают только ciphertext; локальные journal/outbox после E2EE-обработки содержат чувствительные endpoint-данные и требуют host-защиты. Правила совместимости описаны в [protocol-compatibility.md](docs/protocol-compatibility.md).
+Версия пакетов `0.14.0` добавляет постоянную device identity и opt-in enrollment/rebind авторизованных сессий через purpose-bound Ed25519 proof. Logout/re-login сохраняет DeviceId, ключи и пути history/outbox. Новый binding-v1 имеет отдельный domain/canonical format; protocol-v1 и content-v1/v2/v3 bytes не менялись. Binding не заменяет Auth, не восстанавливает потерянные ключи и не добавляет ratchet/forward secrecy. Всего 19 согласованных пакетов (17 core и 2 MAUI). См. [инструкцию подключения](docs/device-identity.md) и [совместимость](docs/protocol-compatibility.md).
+
+```mermaid
+flowchart LR
+    Maui[Client.Maui: protected metadata] --> Client[Client: persistent identity + proof]
+    Http[Client.Http: authenticated bootstrap] --> Client
+    Http --> DTO[Transport.Http]
+    Api[Server.AspNetCore: account/device policies] --> DTO
+    Api --> Server[Server: binding orchestration]
+    Pg[Persistence.PostgreSql: atomic consume/enroll/bind] --> Server
+    Verify[Server.NSec: public-key verification] --> Server
+    Server --> Protocol[Protocol: canonical binding-v1]
+    Client --> Protocol
+    DTO --> Protocol
+```
 
 ## Документация
 
@@ -35,6 +50,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - [Подготовка фото и видео](docs/media.md)
 - [Локальная история и синхронизация](docs/client-storage.md)
 - [Интеграция .NET MAUI](docs/maui.md)
+- [Постоянная identity, re-login и интеграция внешнего Auth](docs/device-identity.md)
 - [Руководство разработчика](docs/development.md)
 - [Руководство по выпуску](docs/releasing.md)
 - [Инструкции для coding-агентов](AGENTS.md)
@@ -43,6 +59,8 @@ Skopka.Chat — переиспользуемый транспорт-незави
 ## Быстрый старт клиента
 
 Реальное приложение должно реализовать `IDeviceKeyStore` поверх защищённого хранилища платформы. `InMemoryDeviceKeyStore` предназначен только для тестов и sample.
+
+Низкоуровневое создание ниже — только первый явный enrollment, не обработчик каждого login. Для повторных входов используйте `PersistentDeviceIdentityService.LoadAsync` и `DeviceBindingCoordinator` из [руководства](docs/device-identity.md). Custom key stores должны реализовать atomic `TryCreateAsync`; создание больше не перезаписывает существующие ключи.
 
 ```csharp
 var keyStore = new MyPlatformDeviceKeyStore();
@@ -193,6 +211,8 @@ await chat.TrySendDraftAsync();
 
 ## HTTP-клиент
 
+Пример ниже использует прежний claims-based режим. Для opt-in device binding вместо `RegisterDeviceAsync` сначала выполните Enrollment/Rebind через `DeviceBindingCoordinator`, как описано в [руководстве identity](docs/device-identity.md).
+
 Host реализует получение access token и регистрирует отдельный typed client для текущей пары user/device:
 
 ```csharp
@@ -297,7 +317,7 @@ dotnet run --project samples/Skopka.Chat.Sample
 
 NuGet-пакеты создаются в `artifacts/packages`.
 
-PostgreSQL integration tests в трёх проектах могут автоматически поднять изолированную PostgreSQL 18 через Testcontainers. Нужен запущенный Docker:
+PostgreSQL integration tests в четырёх проектах могут автоматически поднять изолированную PostgreSQL 18 через Testcontainers. Нужен запущенный Docker:
 
 ```powershell
 $env:SKOPKA_CHAT_POSTGRES_TESTCONTAINERS = 'true'
@@ -305,13 +325,14 @@ $env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests
 dotnet test --project tests/Skopka.Chat.Attachments.Tests
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
+dotnet test --project tests/Skopka.Chat.Binding.Tests
 ```
 
 Каждая тестовая сборка получает собственный контейнер и удаляет его после выполнения. Для внешней одноразовой БД задайте `SKOPKA_CHAT_POSTGRES`; эта переменная имеет приоритет. Без connection string и флага Testcontainers DB-тесты корректно пропускаются; `SKOPKA_CHAT_POSTGRES_REQUIRED=true` превращает такой пропуск или недоступный Docker в ошибку release-gate.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из восемнадцати пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из девятнадцати пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый JSON/content fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает восемнадцать `.nupkg` вместе с восемнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content/binding fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает девятнадцать `.nupkg` вместе с девятнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а typed client может использовать `IChatEventStore`/`ChatSyncCoordinator` для durable store-before-ack; `IReceivedMessageStore` остаётся низкоуровневой границей `ChatReceiver`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 

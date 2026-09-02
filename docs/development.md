@@ -36,6 +36,7 @@ flowchart TD
     HttpClient --> Media
     HttpClient --> HttpContract
     Server[Skopka.Chat.Server] --> Protocol
+    ServerCrypto[Skopka.Chat.Server.NSec] --> Server
     AspNet[Skopka.Chat.Server.AspNetCore] --> Server
     AspNet --> HttpContract
     Persistence[Skopka.Chat.Persistence.PostgreSql] --> Server
@@ -66,6 +67,7 @@ $env:SKOPKA_CHAT_POSTGRES_TESTCONTAINERS = 'true'
 $env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
+dotnet test --project tests/Skopka.Chat.Binding.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
 ```
@@ -89,6 +91,7 @@ The persistence gate covers migrations, encrypted storage, concurrent identical/
 | Server engine | `Skopka.Chat.Server.Tests` | In-memory integration |
 | HTTP client/contract | `Skopka.Chat.Client.Http.Tests` | ASP.NET Core tests + HTTP integration |
 | ASP.NET Core boundary | `Skopka.Chat.Server.AspNetCore.Tests` | Client HTTP tests + HTTP integration |
+| Persistent identity/session binding | `Skopka.Chat.Binding.Tests`, `Skopka.Chat.Client.Maui.Tests` | Required owned-container PostgreSQL restart/atomicity + HTTP E2EE re-login + binding fuzz corpus |
 | EF model/query/migration | `Skopka.Chat.Persistence.PostgreSql.Tests` | Required PostgreSQL HTTP integration |
 | Shared HTTP JSON contracts | `Skopka.Chat.FuzzTests -- --replay .../corpus` | Both HTTP projects + AFL++ smoke |
 
@@ -155,7 +158,7 @@ For schema changes, generate a new EF migration. Existing migrations are append-
 
 ## Packaging and release verification
 
-The coordinated set contains eighteen NuGet packages and eighteen symbol packages. Linux creates the sixteen framework-independent/core packages; Windows adds `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` after building all package target frameworks. CI combines the artifacts and rejects missing or extra versioned files:
+The coordinated set contains nineteen NuGet packages and nineteen symbol packages. Linux creates the seventeen framework-independent/core packages; Windows adds `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` after building all package target frameworks. CI combines the artifacts and rejects missing or extra versioned files:
 
 ```powershell
 dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
@@ -170,7 +173,7 @@ $packageVersion = dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.c
 tar -xOf "artifacts/packages/Skopka.Chat.Transport.Http.$packageVersion.nupkg" Skopka.Chat.Transport.Http.nuspec
 ```
 
-Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` proves consumption of the sixteen core assemblies; `tests/Skopka.Chat.Maui.PackageConsumer` proves Android consumption of the two platform packages. See [`releasing.md`](releasing.md) for the protected tag workflow.
+Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` proves consumption of the seventeen core assemblies; `tests/Skopka.Chat.Maui.PackageConsumer` proves Android consumption of the two platform packages. See [`releasing.md`](releasing.md) for the protected tag workflow.
 
 ## Security review prompts
 

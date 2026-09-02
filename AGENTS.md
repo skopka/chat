@@ -20,6 +20,8 @@ These invariants are non-negotiable:
 
 - The server may store public device data, conversation metadata, ciphertext, authentication data, and delivery state. It must not receive plaintext or private keys and must not expose a decryption API.
 - Private key material crosses only `IDeviceKeyStore`. In-memory key and message stores are test/sample implementations, never production recommendations.
+- Permanent device identity is service/account/installation-scoped, never sid/token-scoped. Creation uses atomic `TryCreateAsync`; loss/corruption/unavailability/revocation never triggers automatic key replacement. Scoped metadata initialization requires cooperative exclusive leases.
+- Binding-v1 has its own canonical domain/version. Host authentication precedes bootstrap; bound-mode requests require asynchronous live binding resolution. Enrollment/consume/binding are atomic; exact retries cannot bypass revocation or extend expiry. Read ADR 0017 before changing this boundary.
 - Protocol v1 canonical bytes are the signing and AEAD source of truth. JSON is never signed and is not AEAD associated data.
 - Never silently reinterpret an existing protocol version. A canonical wire change requires a new protocol version, a distinct domain separator, compatibility documentation, and new golden vectors.
 - Public device keys are authenticated directory data, not automatically trusted identity. Preserve security-code/fingerprint guidance and key-change warnings.
@@ -47,6 +49,7 @@ Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitatio
 | `src/Skopka.Chat.Transport.Http` | Shared routes, HTTP DTOs, limits, mappings, strict source-generated JSON metadata | Protocol only |
 | `src/Skopka.Chat.Client.Http` | Authenticated typed HTTP client, bounded responses, retries and encrypted attachment upload adapter | Client + Media + Transport.Http; never Server |
 | `src/Skopka.Chat.Server` | Transport-neutral device/conversation/envelope engine and repository contracts | Protocol only; never Client or ASP.NET Core |
+| `src/Skopka.Chat.Server.NSec` | Optional public-key-only binding-v1 Ed25519 verifier | Server + reviewed NSec; never Client or private-key/decryption APIs |
 | `src/Skopka.Chat.Server.AspNetCore` | Authenticated Minimal API adapter, principal mapping and optional ciphertext attachment routes | Protocol + Server + Attachments + Transport.Http; never Client |
 | `src/Skopka.Chat.Persistence.PostgreSql` | EF Core/Npgsql implementation, migrations, cleanup | Protocol + Server |
 | `tests/*` | Unit, boundary, in-memory, PostgreSQL, and full HTTP/E2EE tests | May compose only the packages needed by the scenario |
@@ -127,6 +130,7 @@ PostgreSQL tests require an explicitly disposable database. They mutate schema a
 $env:SKOPKA_CHAT_POSTGRES_TESTCONTAINERS = 'true'
 $env:SKOPKA_CHAT_POSTGRES_REQUIRED = 'true'
 dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configuration Release --no-build --no-restore
+dotnet test --project tests/Skopka.Chat.Binding.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
 ```
@@ -145,6 +149,7 @@ Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external data
 - Attachment crypto/storage/HTTP changes: run Client, Attachments, both HTTP projects, content fuzz replay/AFL++, and the attachment PostgreSQL gate; test truncation, trailing data, tampering, ID conflict, authorization and partial-destination behavior.
 - Media preparation changes: run Media tests plus Client and Client.Http tests; prove exact `File` bypass, `Auto` fallback, generated path isolation, bounded output, generic failures and prepare-before-encrypt ordering. A fake runner does not certify a deployment's FFmpeg binary; run the opt-in synthetic conformance gate against the selected host build.
 - Authentication/authorization changes: include missing, malformed, duplicate, and cross-user/device negative cases; never use untrusted headers as a production authentication example.
+- Identity/binding changes: run Binding and Client.Maui tests, binding corpus replay, required owned-container PostgreSQL restart/atomicity and HTTP re-login/history/outbox gates. Update `docs/device-identity.md` and ADR 0017. Custom stores must preserve create-only and crash-recovery semantics.
 - Dependency changes: update only `Directory.Packages.props`, review transitive/native impact, restore, and run the complete gate.
 - Documentation-only changes: run `git diff --check` and validate every local link/path and every command against the repository.
 
@@ -174,7 +179,7 @@ Before a requested release or version commit:
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly eighteen versioned `.nupkg` and eighteen matching `.snupkg` files were produced in `artifacts/packages`, run both core and MAUI package consumers, and ensure the working tree is clean.
+6. Confirm exactly nineteen versioned `.nupkg` and nineteen matching `.snupkg` files were produced in `artifacts/packages`, run both core and MAUI package consumers, and ensure the working tree is clean.
 
 Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 

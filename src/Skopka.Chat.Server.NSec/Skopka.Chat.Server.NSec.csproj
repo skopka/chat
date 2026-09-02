@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Server.NSec</PackageId>
+    <Description>Optional NSec public-key-only device ownership proof verifier for Skopka.Chat servers.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Server\Skopka.Chat.Server.csproj" />
+    <PackageReference Include="NSec.Cryptography" />
+  </ItemGroup>
+</Project>

@@ -53,6 +53,15 @@ public sealed class PostgreSqlTestDatabase : IAsyncLifetime
         }
     }
 
+    public async ValueTask<bool> RestartOwnedContainerAsync(CancellationToken cancellationToken = default)
+    {
+        if (_container is null) { return false; }
+        await _container.StopAsync(cancellationToken);
+        await _container.StartAsync(cancellationToken);
+        _connectionString = $"{_container.GetConnectionString()};Pooling=false";
+        return true;
+    }
+
     public string GetConnectionStringOrSkip()
     {
         if (_connectionString is not null)

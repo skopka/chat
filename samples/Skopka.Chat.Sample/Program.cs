@@ -4,6 +4,8 @@ using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
 using Skopka.Chat.UI;
 
+await Skopka.Chat.Sample.PersistentIdentityExample.RunAsync();
+
 var now = DateTimeOffset.UtcNow;
 var aliceKeyStore = new InMemoryDeviceKeyStore();
 var bobKeyStore = new InMemoryDeviceKeyStore();

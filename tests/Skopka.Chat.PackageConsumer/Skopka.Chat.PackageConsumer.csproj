@@ -8,7 +8,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.13.0</ChatPackageVersion>
+    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.14.0</ChatPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,6 +26,7 @@
     <PackageReference Include="Skopka.Chat.Transport.Http" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Client.Http" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Server" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Server.NSec" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Server.AspNetCore" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Persistence.PostgreSql" Version="$(ChatPackageVersion)" />
   </ItemGroup>

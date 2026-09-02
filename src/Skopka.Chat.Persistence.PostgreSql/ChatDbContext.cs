@@ -16,11 +16,53 @@ public sealed class ChatDbContext : DbContext
     internal DbSet<ConversationEntity> Conversations => Set<ConversationEntity>();
 
     internal DbSet<EnvelopeEntity> Envelopes => Set<EnvelopeEntity>();
+    internal DbSet<DeviceChallengeEntity> DeviceChallenges => Set<DeviceChallengeEntity>();
+    internal DbSet<DeviceSessionEntity> DeviceSessions => Set<DeviceSessionEntity>();
 
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
+
+        modelBuilder.Entity<DeviceChallengeEntity>(entity =>
+        {
+            entity.ToTable("device_binding_challenges", table =>
+            {
+                table.HasCheckConstraint("ck_binding_challenge_size", "octet_length(payload) BETWEEN 1 AND 1024");
+                table.HasCheckConstraint("ck_binding_challenge_signature", "signature IS NULL OR octet_length(signature) = 64");
+                table.HasCheckConstraint("ck_binding_challenge_consumption", "(signature IS NULL) = (bound_at IS NULL)");
+                table.HasCheckConstraint("ck_binding_challenge_expiry", "expires_at <= session_expires_at");
+            });
+            entity.HasKey(item => item.ChallengeId).HasName("pk_device_binding_challenges");
+            entity.Property(item => item.ChallengeId).HasColumnName("challenge_id").ValueGeneratedNever();
+            entity.Property(item => item.Payload).HasColumnName("payload").HasMaxLength(1024);
+            entity.Property(item => item.ExpiresAt).HasColumnName("expires_at");
+            entity.Property(item => item.SessionExpiresAt).HasColumnName("session_expires_at");
+            entity.Property(item => item.Signature).HasColumnName("signature").HasMaxLength(64);
+            entity.Property(item => item.BoundAt).HasColumnName("bound_at");
+            entity.HasIndex(item => item.ExpiresAt).HasDatabaseName("ix_device_challenges_expiry");
+            entity.HasIndex(item => item.SessionExpiresAt).HasDatabaseName("ix_device_challenges_session_expiry");
+        });
+        modelBuilder.Entity<DeviceSessionEntity>(entity =>
+        {
+            entity.ToTable("device_session_bindings", table =>
+            {
+                table.HasCheckConstraint("ck_binding_context_size", "octet_length(service_id) BETWEEN 1 AND 256 AND octet_length(session_reference) BETWEEN 1 AND 256");
+                table.HasCheckConstraint("ck_binding_session_expiry", "expires_at > bound_at");
+            });
+            entity.HasKey(item => new { item.ServiceId, item.UserId, item.SessionReference }).HasName("pk_device_session_bindings");
+            entity.Property(item => item.ServiceId).HasColumnName("service_id").HasMaxLength(256).UseCollation("C");
+            entity.Property(item => item.UserId).HasColumnName("user_id");
+            entity.Property(item => item.SessionReference).HasColumnName("session_reference").HasMaxLength(256).UseCollation("C");
+            entity.Property(item => item.DeviceId).HasColumnName("device_id");
+            entity.Property(item => item.KeyId).HasColumnName("key_id");
+            entity.Property(item => item.BoundAt).HasColumnName("bound_at");
+            entity.Property(item => item.ExpiresAt).HasColumnName("expires_at");
+            entity.HasOne<DeviceEntity>().WithMany().HasForeignKey(item => item.DeviceId).OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_device_bindings_device");
+            entity.HasIndex(item => item.DeviceId).HasDatabaseName("ix_device_bindings_device");
+            entity.HasIndex(item => item.ExpiresAt).HasDatabaseName("ix_device_bindings_expiry");
+        });
 
         modelBuilder.Entity<DeviceEntity>(entity =>
         {

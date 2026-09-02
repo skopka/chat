@@ -1,6 +1,16 @@
 # Threat model
 
-Status: accepted for protocol version 1 (MVP), updated 2026-09-01.
+Status: accepted for protocol version 1 (MVP), updated 2026-09-02; binding-v1 remains subject to independent security review.
+
+## Persistent identity and session-binding boundary
+
+The opt-in binding mechanism adds host-authenticated service/user/session/deadline metadata, public-key challenges, signatures and session/device mappings to server-visible assets. No access/refresh token, private key or message plaintext belongs in these records. A configuration-owned exact service ID and stable bounded session reference/deadline must come from validated authentication; a malicious header, body or device claim is not identity proof.
+
+Binding-v1 signs a distinct canonical purpose, operation, both device public keys, all identity/context IDs, CSPRNG nonce and times. The client compares independently expected context before signing. Rebind verifies stored immutable directory keys; atomic enrollment/consume/binding, exact-retry comparison and current revocation checks prevent replay into another session or silently switching an active session's device. PostgreSQL clocks are checked after acquiring locks; expired pending proofs cannot become valid while waiting. Resolution is per request, so revocation can race with an already authorized in-flight request.
+
+The metadata reservation and cooperative cross-process lock prevent accidental replacement after partial writes; storage compromise, uncooperative writers, deleting live lock files, backup cloning and missing installation metadata are outside this protection. `Absent` means metadata is absent, not proof that no historical keys ever existed. Require an explicit decision and consider retained legacy records before creating another identity. SecureStorage/SQLite/installation IDs and plaintext crash diagnostics remain host-protected assets.
+
+Proof demonstrates signing-key possession at binding time only. It does not replace OAuth/JWT checks, instantly revoke Auth sessions, sender-constrain each request like DPoP/mTLS, recover keys, or add ratchet/forward secrecy. Stolen authenticated account credentials can enroll attacker-owned keys unless the host adds step-up; stolen bearer credentials of a bound session remain usable according to normal Auth policy. Live session validation, distributed rate limits/quotas, bounded session deadlines, cleanup and identity-verification UX remain host responsibilities. See [ADR 0017](adr/0017-persistent-device-session-binding.md) and [integration/migration](device-identity.md).
 
 ## Scope and assets
 

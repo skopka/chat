@@ -40,7 +40,17 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
             group.RequireAuthorization(options.AuthorizationPolicy);
         }
 
-        group.MapPost(SkopkaChatHttpRoutes.Devices, RegisterDeviceAsync);
+        var boundMode = endpoints.ServiceProvider.GetRequiredService<IServiceProviderIsService>()
+            .IsService(typeof(DeviceBindingRequestResolver));
+        if (boundMode)
+        {
+            group.RequireAuthorization(DeviceBindingPolicies.Device);
+            DeviceBindingEndpoints.Map(endpoints, prefix);
+        }
+        else
+        {
+            group.MapPost(SkopkaChatHttpRoutes.Devices, RegisterDeviceAsync);
+        }
         group.MapGet($"{SkopkaChatHttpRoutes.Devices}/{{deviceId:guid}}", GetDeviceAsync);
         group.MapPost($"{SkopkaChatHttpRoutes.Devices}/{{deviceId:guid}}/revocation", RevokeDeviceAsync);
         group.MapPost(SkopkaChatHttpRoutes.Conversations, CreateConversationAsync);
@@ -247,7 +257,7 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!principalMapper.TryMap(context.User, out var identity) ||
+        if (await ResolveIdentityAsync(context, principalMapper, cancellationToken).ConfigureAwait(false) is not { } identity ||
             identity.DeviceId.Value != request.DeviceId)
         {
             return Results.Forbid();
@@ -319,7 +329,7 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
-        if (!principalMapper.TryMap(context.User, out var identity))
+        if (await ResolveIdentityAsync(context, principalMapper, cancellationToken).ConfigureAwait(false) is not { } identity)
         {
             return Results.Forbid();
         }
@@ -672,7 +682,7 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         IDeviceRepository devices,
         CancellationToken cancellationToken)
     {
-        if (!principalMapper.TryMap(context.User, out var identity))
+        if (await ResolveIdentityAsync(context, principalMapper, cancellationToken).ConfigureAwait(false) is not { } identity)
         {
             return null;
         }
@@ -693,6 +703,15 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         existing.KeyId.Value == keyId &&
         existing.EncryptionPublicKey.Span.SequenceEqual(encryptionPublicKey) &&
         existing.SigningPublicKey.Span.SequenceEqual(signingPublicKey);
+
+    private static async ValueTask<ChatRequestIdentity?> ResolveIdentityAsync(HttpContext context,
+        IChatPrincipalMapper mapper, CancellationToken cancellationToken)
+    {
+        var resolver = context.RequestServices.GetService<IChatRequestIdentityResolver>();
+        return resolver is not null
+            ? await resolver.ResolveAsync(context, cancellationToken).ConfigureAwait(false)
+            : mapper.TryMap(context.User, out var identity) ? identity : null;
+    }
 
     private static bool HasExactParticipants(
         PersonalConversation conversation,

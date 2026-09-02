@@ -36,8 +36,17 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.11.x` | v1 | v1 | First coordinated public set after `0.7.0`; includes the accumulated encrypted-content v1, UI, attachment content v2/storage and client-side media preparation/exact-file mode. Protocol-v1 canonical bytes remain unchanged. |
 | `0.12.x` | v1 | v1 | Adds encrypted content-v3 edits, adaptable edit UI, durable verified client-event storage/synchronization and optional SQLite. Content v1/v2 and protocol-v1 canonical bytes remain unchanged. |
 | `0.13.x` | v1 | v1 | Adds conversation/device directory APIs, retry-safe multi-device fan-out, durable outbox/history paging and optional MAUI client/UI adapters. Content v1/v2/v3 and protocol-v1 canonical bytes remain unchanged. |
+| `0.14.x` | v1 | v1 | Adds persistent identity and opt-in session-binding-v1, an optional Server.NSec verifier and atomic PostgreSQL enrollment/binding. Encrypted envelope/content bytes unchanged. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
+
+## Device identity/binding upgrade
+
+Binding-v1 uses `Skopka.Chat.DeviceBinding.v1\0` and explicit big-endian/length-prefixed fields. Its golden vector is pinned in `tests/Skopka.Chat.Binding.Tests/BindingProtocolTests.cs`; it is not an envelope or content format. Service/session references are exact bounded strict UTF-8, timestamps UTC milliseconds. Full field order and retry states: [ADR 0017](adr/0017-persistent-device-session-binding.md).
+
+Apply the append-only `202609020005_DeviceSessionBindings` migration and select `AddSkopkaChatDeviceBinding` explicitly. Old claims-based hosts/clients continue unchanged unless opt-in is enabled; old clients cannot bootstrap against a binding-required host without adopting the new APIs. Keep the coordinated packages together. `IDeviceKeyStore.TryCreateAsync` is required for new creation; custom old stores still load, but default create capability throws rather than overwriting. `DeviceIdentityService.CreateAsync` is now create-only.
+
+Existing DeviceIds, conversations, envelopes and SQLite records remain intact. Explicit `AdoptAsync` or scoped `ImportLegacyAsync` can preserve an old sid-shaped ID and both retained keys. Neither login nor metadata reconstructs lost keys. Details and compiled host integration: [device identity guide](device-identity.md).
 
 ## Encrypted content compatibility
 

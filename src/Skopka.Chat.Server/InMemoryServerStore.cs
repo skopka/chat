@@ -5,7 +5,7 @@ using Skopka.Chat.Protocol;
 namespace Skopka.Chat.Server;
 
 /// <summary>Thread-safe, non-persistent implementation for tests and the vertical-slice sample.</summary>
-public sealed class InMemoryServerStore : IDeviceRepository, IConversationRepository, IEnvelopeRepository
+public sealed partial class InMemoryServerStore : IDeviceRepository, IConversationRepository, IEnvelopeRepository
 {
     private readonly ConcurrentDictionary<DeviceId, PublicDevice> _devices = new();
     private readonly ConcurrentDictionary<ConversationId, PersonalConversation> _conversations = new();
@@ -21,7 +21,10 @@ public sealed class InMemoryServerStore : IDeviceRepository, IConversationReposi
     ValueTask<bool> IDeviceRepository.TryAddAsync(PublicDevice device, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(_devices.TryAdd(device.DeviceId, device));
+        lock (_bindingGate)
+        {
+            return ValueTask.FromResult(_devices.TryAdd(device.DeviceId, device));
+        }
     }
 
     /// <inheritdoc />
@@ -35,22 +38,25 @@ public sealed class InMemoryServerStore : IDeviceRepository, IConversationReposi
     ValueTask<bool> IDeviceRepository.RevokeAsync(DeviceId deviceId, DateTimeOffset revokedAt, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        while (_devices.TryGetValue(deviceId, out var current))
+        lock (_bindingGate)
         {
-            if (current.IsRevoked)
+            while (_devices.TryGetValue(deviceId, out var current))
             {
-                return ValueTask.FromResult(false);
+                if (current.IsRevoked)
+                {
+                    return ValueTask.FromResult(false);
+                }
+
+                ArgumentOutOfRangeException.ThrowIfLessThan(revokedAt, current.RegisteredAt);
+
+                if (_devices.TryUpdate(deviceId, current.Revoke(revokedAt), current))
+                {
+                    return ValueTask.FromResult(true);
+                }
             }
 
-            ArgumentOutOfRangeException.ThrowIfLessThan(revokedAt, current.RegisteredAt);
-
-            if (_devices.TryUpdate(deviceId, current.Revoke(revokedAt), current))
-            {
-                return ValueTask.FromResult(true);
-            }
+            return ValueTask.FromResult(false);
         }
-
-        return ValueTask.FromResult(false);
     }
 
     /// <inheritdoc />

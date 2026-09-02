@@ -1,10 +1,15 @@
 # Security-boundary self-review
 
-Date: 2026-09-01
+Date: 2026-09-02
 Scope: package boundaries and protocol-v1 vertical slice. This is not an independent audit.
 
 ## Confirmed boundaries
 
+- Binding-v1 adds a separate purpose/domain and golden vector; both encryption/signing keys and exact host context are covered. Client exposes only typed proof creation. Server remains Protocol-only; optional `Server.NSec` performs public-key verification without Client/private-key APIs.
+- Scoped metadata reserves identity before create-only key persistence. Tests cover independent initializers, interrupted finalization/import, missing/corrupt/unavailable keys and sticky revocation. Platform SecureStorage, backup/uninstall and cross-process OS behavior still require physical-device validation.
+- The opt-in account/bootstrap and device/chat policies use asynchronous trusted-context/binding resolution and never fall back to caller device headers/claims. Legacy `IChatPrincipalMapper` mode is unchanged without opt-in.
+- New binding tests exercise disposable PostgreSQL atomic rollback, consume races, revocation, clock advancement under locks and actual owned-container restart; HTTP re-login preserves DeviceId, history/outbox and decrypts queued E2EE content. Captured logs and generic errors are checked for synthetic token/plaintext/private-key markers. This is regression coverage, not proof that arbitrary host logging middleware is safe.
+- Session refs/deadlines and binding metadata are visible to the server. Binding is not DPoP/mTLS, live Auth revocation, key recovery or a ratchet; step-up enrollment and bearer-token risks remain. See [device identity](device-identity.md).
 - `Skopka.Chat.Protocol` references no ASP.NET Core, EF Core, NSec or Client assembly.
 - `Skopka.Chat.Attachments` references Protocol only. PostgreSQL and S3 dependencies are isolated in separate adapters, so selecting one backend does not pull the other into a host.
 - `Skopka.Chat.Media` is client-side and references Client without HTTP, Server, EF or UI; `Skopka.Chat.Media.FFmpeg` references Media and the BCL only. The FFmpeg binary is host-supplied rather than restored transitively.

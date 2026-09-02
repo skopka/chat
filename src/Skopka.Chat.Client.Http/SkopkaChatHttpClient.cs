@@ -13,7 +13,7 @@ using Skopka.Chat.Transport.Http;
 namespace Skopka.Chat.Client.Http;
 
 /// <summary>Authenticated HTTP API client and <see cref="IChatTransport"/> implementation.</summary>
-public sealed class SkopkaChatHttpClient :
+public sealed partial class SkopkaChatHttpClient :
     IChatTransport,
     IEncryptedAttachmentUploader,
     IChatConversationDirectory,

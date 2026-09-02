@@ -21,6 +21,8 @@ public static class SkopkaChatHttpClientServiceCollectionExtensions
         services.AddOptions<Skopka.Chat.Client.Http.SkopkaChatHttpClientOptions>()
             .Configure(configure);
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddTransient<Skopka.Chat.Client.IDeviceBindingTransport>(provider =>
+            provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
         services.TryAddTransient<Skopka.Chat.Client.IChatTransport>(provider =>
             provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
         services.TryAddTransient<Skopka.Chat.Client.IChatConversationDirectory>(provider =>

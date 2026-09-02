@@ -1,5 +1,11 @@
 # MVP limitations and roadmap
 
+## Persistent identity is not account recovery
+
+`0.14.x` adds opt-in ownership proof for enrollment/rebind and protected scoped metadata, not an identity provider. Logout/re-login can retain the same device only when the host preserves its keys, installation scope and history/outbox. Missing/corrupt/unavailable keys never trigger silent replacement. Explicit legacy import keeps old IDs; it does not merge devices or recover lost private keys.
+
+Binding is not OAuth validation, immediate Auth revocation, DPoP/mTLS, step-up enrollment, forward secrecy or a ratchet. A stolen authorized session can enroll another device unless the host prevents it; a stolen bound-session bearer token remains a bearer credential. Cooperative file locks and injected SecureStorage tests do not certify real platform backup, uninstall/restore or multi-process semantics. See [integration and migration](device-identity.md).
+
 ## Security ceiling of protocol v1
 
 Protocol v1 is a constrained per-message hybrid encryption design. It is not Signal Protocol, MLS or a ratchet. It has not received an independent cryptographic audit. The most important consequence is that compromise of a recipient's long-lived X25519 private key permits decryption of retained historical envelopes addressed to that key. Rotating or revoking a key protects only future server-mediated traffic.

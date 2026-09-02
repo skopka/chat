@@ -107,6 +107,10 @@ jobs:
         run: dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
         env: *postgres-test-environment
 
+      - name: Require device binding PostgreSQL restart and transaction gate
+        run: dotnet test --project tests/Skopka.Chat.Binding.Tests --configuration Release --no-build --no-restore
+        env: *postgres-test-environment
+
       - name: Install AFL++
         run: |
           sudo apt-get update
@@ -151,6 +155,7 @@ jobs:
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Server"
+            "Skopka.Chat.Server.NSec"
             "Skopka.Chat.Server.AspNetCore"
             "Skopka.Chat.Persistence.PostgreSql"
           )
@@ -167,8 +172,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 16 || "$SNUPKG_COUNT" -ne 16 ]]; then
-            echo "Expected 16 packages and 16 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 17 || "$SNUPKG_COUNT" -ne 17 ]]; then
+            echo "Expected 17 packages and 17 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
@@ -387,6 +392,7 @@ jobs:
             "Skopka.Chat.UI.Blazor"
             "Skopka.Chat.UI.Maui"
             "Skopka.Chat.Server"
+            "Skopka.Chat.Server.NSec"
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Persistence.PostgreSql"
@@ -400,8 +406,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 18 || "$SNUPKG_COUNT" -ne 18 ]]; then
-            echo "Expected 18 packages and 18 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 19 || "$SNUPKG_COUNT" -ne 19 ]]; then
+            echo "Expected 19 packages and 19 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
@@ -464,6 +470,7 @@ jobs:
             "skopka.chat.transport.http"
             "skopka.chat.client.http"
             "skopka.chat.server"
+            "skopka.chat.server.nsec"
             "skopka.chat.server.aspnetcore"
             "skopka.chat.persistence.postgresql"
           )
@@ -503,6 +510,7 @@ jobs:
             "Skopka.Chat.UI.Blazor"
             "Skopka.Chat.UI.Maui"
             "Skopka.Chat.Server"
+            "Skopka.Chat.Server.NSec"
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Persistence.PostgreSql"
@@ -540,6 +548,7 @@ jobs:
             "skopka.chat.transport.http"
             "skopka.chat.client.http"
             "skopka.chat.server"
+            "skopka.chat.server.nsec"
             "skopka.chat.server.aspnetcore"
             "skopka.chat.persistence.postgresql"
           )

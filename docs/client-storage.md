@@ -22,6 +22,7 @@ Outgoing events are not necessarily delivered back to their sending device. Afte
 
 ## SQLite setup
 
+With persistent identity (`0.14.x`), construct history/outbox paths from stable service/account/installation scope plus DeviceId, never from sid/access-token state. Preserve existing account/device paths during migration. Run enrollment/rebind before network sync and reopen the same databases after re-login; saved outbox envelopes are retried byte-for-byte. Preserving DeviceId without both original private keys and local databases does not restore history. See [device identity integration](device-identity.md).
 ```csharp
 using Skopka.Chat.Client.Storage;
 using Skopka.Chat.Client.Storage.Sqlite;

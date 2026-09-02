@@ -2,6 +2,7 @@
 
 ## Build and architecture
 
+- [`device-identity.md`](device-identity.md) — persistent identity, safe enrollment/rebind, validated sub/sid host example, migration and logout policy.
 - [`development.md`](development.md) — local setup, dependency graph, test matrix, PostgreSQL gates, packaging, and contribution workflow.
 - [`ui.md`](ui.md) — headless presentation model, Blazor components, theming, templates, host send boundary, and UI security limits.
 - [`attachments.md`](attachments.md) — attachment encryption, HTTP transfer, PostgreSQL/S3 storage, host authorization and UI boundaries.
@@ -37,5 +38,7 @@
 - [`adr/0014-durable-client-events-and-sync.md`](adr/0014-durable-client-events-and-sync.md) — durable client journal, SQLite plaintext boundary and store/apply/ack ordering.
 - [`adr/0015-postgresql-testcontainers-gates.md`](adr/0015-postgresql-testcontainers-gates.md) — pinned disposable PostgreSQL fixtures for local, CI and release gates.
 - [`adr/0016-maui-client-orchestration.md`](adr/0016-maui-client-orchestration.md) — MAUI endpoint boundaries, durable multi-device outbox, paging and native UI.
+
+- [`adr/0017-persistent-device-session-binding.md`](adr/0017-persistent-device-session-binding.md) — scoped persistent identity, binding-v1 proof, atomic PostgreSQL transactions and opt-in HTTP authorization.
 
 ADRs describe accepted decisions, not production certification. Start with the threat model and MVP limitations before integrating the packages into a real host.

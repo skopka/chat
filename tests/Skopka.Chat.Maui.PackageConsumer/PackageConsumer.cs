@@ -8,6 +8,8 @@ public static class PackageConsumer
     public static IReadOnlyList<string> PublicTypes() =>
     [
         typeof(SecureStorageDeviceKeyStore).FullName!,
+        typeof(SecureStorageDeviceIdentityStore).FullName!,
+        typeof(FileIdentityStorageLock).FullName!,
         typeof(MauiChatLifecycleCoordinator).FullName!,
         typeof(SkopkaChatView).FullName!,
         typeof(MauiChatPresentation).FullName!,
