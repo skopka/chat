@@ -14,6 +14,12 @@ Existing claims-based HTTP authorization remains the default. Explicit binding r
 
 ## Local identity, concurrency and crashes
 
+The 0.15.0 browser adapter follows these exact reserve/create/finalize and
+binding-v1 rules with encrypted IndexedDB and origin-scoped Web Locks. A separate
+local vault phrase, explicit portable-key format and same-origin cookie BFF are
+described in [ADR 0019](0019-browser-client-cryptography-and-vault.md); none changes
+the signed binding bytes or replaces independent expected host context.
+
 Identity scope is the exact service identifier, UserId and a random installation identifier supplied/persisted by the host with appropriate backup exclusions. It is not a hardware fingerprint. Session IDs and tokens never enter this scope or history/outbox paths.
 
 Protected versioned metadata is reserved before private keys are written. An exclusive scope lease spans read/reserve/create/finalize. A pending record with valid matching keys is finalized after restart; a pending record without keys requires explicit recovery rather than replacement. An absent record, corrupt record, inaccessible storage, missing keys and a locally remembered server revocation are distinct outcomes. Neither load nor login creates a replacement. Explicit create uses a create-only key-store capability, never SaveAsync overwrite. Explicit adoption of legacy keys proves they load for the intended user and keeps the existing DeviceId, KeyId and public keys.
@@ -41,6 +47,11 @@ The completion request contains only challenge ID and signature. The server load
 The repository contracts require these atomic properties; in-memory implementations are only for tests/samples. EF migrations are append-only. No existing device, conversation, envelope, history or outbox identifier is rewritten.
 
 ## Migration and limitations
+
+The 0.15.0 [owner-hosted bot adapter](0018-self-hosted-bots.md) implements these
+same key/metadata contracts with Data Protection-backed local files. It does not
+change binding-v1. Its host must protect/persist the key ring independently and
+verify local filesystem locking, permissions and crash/power-loss durability.
 
 An old DeviceId that happened to equal a previous sid can be explicitly adopted as permanent if its private keys remain available. New sessions prove ownership of it; old devices are never merged automatically. Lost keys produce recovery-required, not ownership inferred from an account login. New enrollment after key loss is a separate explicit user decision.
 

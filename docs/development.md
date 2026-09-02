@@ -158,7 +158,7 @@ For schema changes, generate a new EF migration. Existing migrations are append-
 
 ## Packaging and release verification
 
-The coordinated set contains nineteen NuGet packages and nineteen symbol packages. Linux creates the seventeen framework-independent/core packages; Windows adds `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` after building all package target frameworks. CI combines the artifacts and rejects missing or extra versioned files:
+The coordinated set contains twenty-three NuGet packages and twenty-three symbol packages. Linux creates the twenty-one core/browser packages; Windows adds `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` after building all package target frameworks. CI combines the artifacts and rejects missing or extra versioned files:
 
 ```powershell
 dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
@@ -173,7 +173,7 @@ $packageVersion = dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.c
 tar -xOf "artifacts/packages/Skopka.Chat.Transport.Http.$packageVersion.nupkg" Skopka.Chat.Transport.Http.nuspec
 ```
 
-Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` proves consumption of the seventeen core assemblies; `tests/Skopka.Chat.Maui.PackageConsumer` proves Android consumption of the two platform packages. See [`releasing.md`](releasing.md) for the protected tag workflow.
+Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` proves consumption of the twenty native core assemblies (the browser package has a separate published-WASM consumer); `tests/Skopka.Chat.Maui.PackageConsumer` proves Android consumption of the two platform packages. See [`releasing.md`](releasing.md) for the protected tag workflow.
 
 ## Security review prompts
 
@@ -187,3 +187,10 @@ Before opening a change for review, ask:
 - Does documentation still state the v1 security ceiling and host responsibilities accurately?
 
 The current guarantees and known gaps are documented in [`threat-model.md`](threat-model.md), [`security-self-review.md`](security-self-review.md), and [`mvp-limitations.md`](mvp-limitations.md).
+
+## Browser runtime gate
+
+Use [docs/browser.md](browser.md) for the standalone WebAssembly sample and
+`node eng/browser/run-gate.mjs` for real Chromium/Firefox, native interoperability,
+protected IndexedDB/crash/retry and cookie BFF tests. Browser package consumption
+is a separate gate because Client.Browser targets net10.0-browser, not native net10.0.

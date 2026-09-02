@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Bots.AspNetCore</PackageId>
+    <Description>Private HTTP gateway and protected endpoint identity storage for owner-hosted Skopka.Chat bots.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Bots\Skopka.Chat.Bots.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <InternalsVisibleTo Include="Skopka.Chat.FuzzTests" />
+  </ItemGroup>
+</Project>

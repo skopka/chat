@@ -16,6 +16,79 @@ public sealed class HttpClientTransportTests
     private const string HostileMarker = "secret-hostile-response-marker";
 
     [Fact]
+    public async Task Host_authorization_is_reapplied_on_each_retry_without_a_bearer_token()
+    {
+        var user = UserId.New();
+        var peer = UserId.New();
+        var authorizations = 0;
+        var attempts = 0;
+        var requests = new List<HttpRequestMessage>();
+        var authorizer = new DelegateAuthorizer((request, cancellationToken) =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            authorizations++;
+            request.Headers.Add("X-Host-CSRF", "synthetic-" + authorizations);
+            requests.Add(request);
+            return ValueTask.CompletedTask;
+        });
+        using var http = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            attempts++;
+            Assert.Null(request.Headers.Authorization);
+            Assert.Equal("synthetic-" + attempts, Assert.Single(request.Headers.GetValues("X-Host-CSRF")));
+            return Task.FromResult(attempts == 1 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) :
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new PersonalConversationResponse(ConversationId.New().Value, user.Value, peer.Value, Now),
+                        SkopkaChatHttpJsonContext.Default.PersonalConversationResponse)
+                });
+        }))
+        { BaseAddress = new Uri("https://chat.example.test/") };
+        var client = new SkopkaChatHttpClient(http, authorizer, Options.Create(new SkopkaChatHttpClientOptions
+        {
+            AuthenticatedUserId = user.Value,
+            AuthenticatedDeviceId = DeviceId.New().Value,
+            MaxTransientRetries = 1,
+            RetryDelay = TimeSpan.Zero,
+            MaxRetryDelay = TimeSpan.Zero
+        }), new FixedTimeProvider(Now));
+
+        await client.GetOrCreatePersonalConversationAsync(peer);
+
+        Assert.Equal(2, authorizations);
+        Assert.Equal(2, attempts);
+        Assert.NotSame(requests[0], requests[1]);
+        Assert.Empty(http.DefaultRequestHeaders);
+    }
+
+    [Fact]
+    public async Task Rejected_host_authorization_does_not_send_or_retry()
+    {
+        var attempts = 0;
+        var authorizations = 0;
+        using var http = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            attempts++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }))
+        { BaseAddress = new Uri("https://chat.example.test/") };
+        var client = new SkopkaChatHttpClient(http, new DelegateAuthorizer((_, _) =>
+        {
+            authorizations++;
+            throw new ChatHttpTransportException("Host session unavailable.");
+        }), Options.Create(new SkopkaChatHttpClientOptions
+        {
+            AuthenticatedUserId = UserId.New().Value,
+            AuthenticatedDeviceId = DeviceId.New().Value
+        }), new FixedTimeProvider(Now));
+
+        await Assert.ThrowsAsync<ChatHttpTransportException>(async () => await client.GetDeviceAsync(DeviceId.New()));
+
+        Assert.Equal(1, authorizations);
+        Assert.Equal(0, attempts);
+    }
+
+    [Fact]
     public async Task Transient_response_is_retried_with_a_fresh_request_and_token()
     {
         var userId = Guid.NewGuid();
@@ -591,6 +664,11 @@ public sealed class HttpClientTransportTests
             CallCount++;
             return ValueTask.FromResult(token);
         }
+    }
+
+    private sealed class DelegateAuthorizer(Func<HttpRequestMessage, CancellationToken, ValueTask> callback) : IChatHttpRequestAuthorizer
+    {
+        public ValueTask AuthorizeAsync(HttpRequestMessage request, CancellationToken cancellationToken = default) => callback(request, cancellationToken);
     }
 
     private sealed class DelegateHandler(

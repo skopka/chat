@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Bots.Sqlite</PackageId>
+    <Description>Durable local inbox and request idempotency for owner-hosted Skopka.Chat bots.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Bots\Skopka.Chat.Bots.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,16 @@
+**/bin
+**/obj
+**/node_modules
+.git
+.codex
+.agents
+artifacts
+**/*.pfx
+**/*.p12
+**/*.key
+**/*.db
+**/*.db-*
+**/secrets
+**/.env
+**/.env.*
+**/appsettings.*.json

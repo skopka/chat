@@ -2,7 +2,17 @@
   "solution": {
     "path": "Skopka.Chat.sln",
     "projects": [
+      "src\\Skopka.Chat.Client.Browser\\Skopka.Chat.Client.Browser.csproj",
+      "samples\\Skopka.Chat.Browser.Sample\\Skopka.Chat.Browser.Sample.csproj",
+      "samples\\Skopka.Chat.Browser.Host\\Skopka.Chat.Browser.Host.csproj",
+      "tests\\Skopka.Chat.Browser.Tests\\Skopka.Chat.Browser.Tests.csproj",
+      "tests\\Skopka.Chat.Browser.Fixtures\\Skopka.Chat.Browser.Fixtures.csproj",
       "samples\\Skopka.Chat.Sample\\Skopka.Chat.Sample.csproj",
+      "samples\\Skopka.Chat.BotGateway\\Skopka.Chat.BotGateway.csproj",
+      "src\\Skopka.Chat.Bots\\Skopka.Chat.Bots.csproj",
+      "src\\Skopka.Chat.Bots.Sqlite\\Skopka.Chat.Bots.Sqlite.csproj",
+      "src\\Skopka.Chat.Bots.AspNetCore\\Skopka.Chat.Bots.AspNetCore.csproj",
+      "tests\\Skopka.Chat.Bots.Tests\\Skopka.Chat.Bots.Tests.csproj",
       "src\\Skopka.Chat.Attachments.PostgreSql\\Skopka.Chat.Attachments.PostgreSql.csproj",
       "src\\Skopka.Chat.Attachments.S3\\Skopka.Chat.Attachments.S3.csproj",
       "src\\Skopka.Chat.Attachments\\Skopka.Chat.Attachments.csproj",

@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
-using NSec.Cryptography;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client;
@@ -116,16 +115,21 @@ public sealed class InMemoryDeviceKeyStore : IDeviceKeyStore
     }
 }
 
-/// <summary>Creates independent device identities using NSec-managed keys.</summary>
+/// <summary>Creates independent device identities using a trusted endpoint primitive provider.</summary>
 public sealed class DeviceIdentityService
 {
-    private static readonly KeyAgreementAlgorithm Agreement = KeyAgreementAlgorithm.X25519;
-    private static readonly SignatureAlgorithm Signature = SignatureAlgorithm.Ed25519;
+    private readonly IChatCryptographyProvider _crypto;
     private readonly IDeviceKeyStore _keyStore;
 
     /// <summary>Creates an identity service over a host-selected secure store.</summary>
-    public DeviceIdentityService(IDeviceKeyStore keyStore) =>
+    public DeviceIdentityService(IDeviceKeyStore keyStore) : this(keyStore, ChatCryptographyDefaults.Create()) { }
+
+    /// <summary>Creates an identity service using an explicitly selected endpoint provider.</summary>
+    public DeviceIdentityService(IDeviceKeyStore keyStore, IChatCryptographyProvider cryptography)
+    {
         _keyStore = keyStore ?? throw new ArgumentNullException(nameof(keyStore));
+        _crypto = cryptography ?? throw new ArgumentNullException(nameof(cryptography));
+    }
 
     /// <summary>Generates, persists and returns public data for a new device.</summary>
     public ValueTask<PublicDevice> CreateAsync(
@@ -143,35 +147,27 @@ public sealed class DeviceIdentityService
             throw new ArgumentException("User and device identifiers must not be empty.");
         }
 
-        var parameters = new KeyCreationParameters { ExportPolicy = KeyExportPolicies.AllowPlaintextArchiving };
-        using var encryptionKey = Key.Create(Agreement, parameters);
-        using var signingKey = Key.Create(Signature, parameters);
-        var encryptionPrivate = encryptionKey.Export(KeyBlobFormat.NSecPrivateKey);
-        var signingPrivate = signingKey.Export(KeyBlobFormat.NSecPrivateKey);
-
+        var encryptionPrivate = _crypto.CreatePrivateKey(ChatKeyAlgorithm.X25519);
+        byte[]? signingPrivate = null;
         try
         {
+            signingPrivate = _crypto.CreatePrivateKey(ChatKeyAlgorithm.Ed25519);
+            var device = new PublicDevice(userId, deviceId, keyId,
+                _crypto.GetPublicKey(ChatKeyAlgorithm.X25519, encryptionPrivate),
+                _crypto.GetPublicKey(ChatKeyAlgorithm.Ed25519, signingPrivate), registeredAt);
+            ProtocolValidator.Validate(device);
             var material = new DeviceKeyMaterial(userId, deviceId, keyId, encryptionPrivate, signingPrivate);
             if (!await _keyStore.TryCreateAsync(material, cancellationToken).ConfigureAwait(false))
             {
                 throw new ChatCryptographicException("Device identity already exists; keys were not replaced.");
             }
+            return device;
         }
         finally
         {
             CryptographicOperations.ZeroMemory(encryptionPrivate);
-            CryptographicOperations.ZeroMemory(signingPrivate);
+            if (signingPrivate is not null) { CryptographicOperations.ZeroMemory(signingPrivate); }
         }
-
-        var device = new PublicDevice(
-            userId,
-            deviceId,
-            keyId,
-            encryptionKey.PublicKey.Export(KeyBlobFormat.RawPublicKey),
-            signingKey.PublicKey.Export(KeyBlobFormat.RawPublicKey),
-            registeredAt);
-        ProtocolValidator.Validate(device);
-        return device;
     }
 
     /// <summary>Loads an existing identity and derives its public record without replacing missing keys.</summary>
@@ -195,7 +191,7 @@ public sealed class DeviceIdentityService
         return DerivePublic(material, userId, deviceId, registeredAt);
     }
 
-    internal static PublicDevice DerivePublic(DeviceKeyMaterial material, UserId userId, DeviceId deviceId, DateTimeOffset registeredAt)
+    internal PublicDevice DerivePublic(DeviceKeyMaterial material, UserId userId, DeviceId deviceId, DateTimeOffset registeredAt)
     {
         if (material.UserId != userId || material.DeviceId != deviceId || material.KeyId.Value == Guid.Empty)
         {
@@ -206,14 +202,12 @@ public sealed class DeviceIdentityService
         var signingPrivate = material.ExportSigningPrivateKey();
         try
         {
-            using var encryptionKey = Key.Import(Agreement, encryptionPrivate, KeyBlobFormat.NSecPrivateKey);
-            using var signingKey = Key.Import(Signature, signingPrivate, KeyBlobFormat.NSecPrivateKey);
             var device = new PublicDevice(
                 userId,
                 deviceId,
                 material.KeyId,
-                encryptionKey.PublicKey.Export(KeyBlobFormat.RawPublicKey),
-                signingKey.PublicKey.Export(KeyBlobFormat.RawPublicKey),
+                _crypto.GetPublicKey(ChatKeyAlgorithm.X25519, encryptionPrivate),
+                _crypto.GetPublicKey(ChatKeyAlgorithm.Ed25519, signingPrivate),
                 registeredAt);
             ProtocolValidator.Validate(device);
             return device;

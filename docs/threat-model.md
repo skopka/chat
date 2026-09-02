@@ -1,5 +1,18 @@
 # Threat model
 
+## Browser endpoint boundary (0.15.0)
+
+The browser target uses shared Client protocol logic with a locally vendored
+libsodium.js primitive provider. IndexedDB values are encrypted using a separate
+local phrase-derived non-extractable AES key; identifiers/indexes/lengths remain
+visible. A copied locked vault permits offline phrase guessing. XSS, same-origin
+scripts, malicious extensions, substituted client code and unlocked browser/OS
+memory defeat endpoint confidentiality; non-extractability does not prevent key
+use by malicious code. Strings cannot be reliably cleared. Complete origin data
+loss cannot recover keys; partial detected loss/corruption never replaces identity.
+Cookie BFF authentication/CSRF/context are host boundaries, and OAuth credentials
+remain backend-only. See [browser guide](browser.md) and [ADR 0019](adr/0019-browser-client-cryptography-and-vault.md).
+
 Status: accepted for protocol version 1 (MVP), updated 2026-09-02; binding-v1 remains subject to independent security review.
 
 ## Persistent identity and session-binding boundary
@@ -13,6 +26,16 @@ The metadata reservation and cooperative cross-process lock prevent accidental r
 Proof demonstrates signing-key possession at binding time only. It does not replace OAuth/JWT checks, instantly revoke Auth sessions, sender-constrain each request like DPoP/mTLS, recover keys, or add ratchet/forward secrecy. Stolen authenticated account credentials can enroll attacker-owned keys unless the host adds step-up; stolen bearer credentials of a bound session remain usable according to normal Auth policy. Live session validation, distributed rate limits/quotas, bounded session deadlines, cleanup and identity-verification UX remain host responsibilities. See [ADR 0017](adr/0017-persistent-device-session-binding.md) and [integration/migration](device-identity.md).
 
 ## Scope and assets
+
+The 0.15.0 owner-hosted bot gateway is a **client endpoint** with private keys
+and plaintext, not an extension of the ciphertext-only chat server. Its operator
+and attached bot application are plaintext recipients. First-party hosting means
+the chat service operator can read that bot's messages. Required human disclosure,
+live consent and server-host admission must be implemented by the product host;
+gateway-only checks cannot constrain a malicious bot operator. Blocking cannot
+erase existing copies or stop already authorized in-flight operations. Old queued
+updates retain grant IDs and cannot be revived by re-consent. See [bots](bots.md)
+and [ADR 0018](adr/0018-self-hosted-bots.md).
 
 Skopka.Chat v1 protects the contents and authenticity of one-to-one encrypted events sent between individually identified devices. Typed client content may represent text, replies, non-provenance forwards, reaction changes, content-v2 attachment manifests and content-v3 text/caption edits. Each device owns an X25519 encryption key and an Ed25519 signing key. Private keys remain on that device behind the `IDeviceKeyStore` abstraction. The server stores only public device data, routing metadata, ciphertext and delivery state; an optional attachment provider stores separately encrypted blobs.
 
@@ -53,7 +76,7 @@ The compromise alone does not decrypt already stored envelope or attachment ciph
 
 An attacker who can use a device or extract its private keys can impersonate that device and decrypt envelopes addressed to its current long-term encryption key, including previously recorded envelopes. Local plaintext and application notifications may also be exposed by the host application. Revocation prevents the server from accepting new envelopes for that device but cannot erase data already delivered or stop an attacker who bypasses the server.
 
-The library deliberately supplies no filesystem key store. A host must implement `IDeviceKeyStore` with platform secure storage, access control, backup policy and deletion semantics appropriate to its platform. The in-memory implementation is for samples and tests only.
+The core supplies no filesystem key store. The optional bot endpoint package adds a Data Protection-backed file adapter; its key ring must be protected independently (the gateway example requires a mounted certificate). A host must select `IDeviceKeyStore` protection, access control, backup and deletion semantics appropriate to its platform. The in-memory implementation is for samples and tests only.
 
 ## Version 1 limitations and deferred work
 

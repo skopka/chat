@@ -39,6 +39,9 @@ if (typeof(ChatSyncCoordinator).GetMethod(nameof(ChatSyncCoordinator.CommitLocal
 Type[] packageSurfaces =
 [
     typeof(ProtocolVersions),
+    typeof(Skopka.Chat.Bots.ChatBotRuntime),
+    typeof(Skopka.Chat.Bots.Sqlite.SqliteChatBotInbox),
+    typeof(Skopka.Chat.Bots.AspNetCore.BotEndpointExtensions),
     typeof(AttachmentStorageService),
     typeof(AttachmentDbContext),
     typeof(S3AttachmentStore),
@@ -62,8 +65,8 @@ var assemblies = packageSurfaces
     .Select(name => $"{name.Name} {name.Version}")
     .ToArray();
 
-if (assemblies.Length != 17 ||
-    assemblies.Distinct(StringComparer.Ordinal).Count() != 17 ||
+if (assemblies.Length != 20 ||
+    assemblies.Distinct(StringComparer.Ordinal).Count() != 20 ||
     assemblies.Any(string.IsNullOrWhiteSpace))
 {
     throw new InvalidOperationException(

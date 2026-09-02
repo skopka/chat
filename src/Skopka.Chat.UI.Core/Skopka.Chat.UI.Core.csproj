@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework />
+    <TargetFrameworks>net10.0;net10.0-browser</TargetFrameworks>
     <PackageId>Skopka.Chat.UI.Core</PackageId>
     <Description>Framework-independent presentation state and commands for adaptable Skopka.Chat user interfaces.</Description>
   </PropertyGroup>

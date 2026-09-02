@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Transport.Http\Skopka.Chat.Transport.Http.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Bots.AspNetCore\Skopka.Chat.Bots.AspNetCore.csproj" />
     <PackageReference Include="SharpFuzz" />
   </ItemGroup>
 

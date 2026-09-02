@@ -8,11 +8,14 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.14.0</ChatPackageVersion>
+    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.15.0</ChatPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Skopka.Chat.Protocol" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Bots" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Bots.Sqlite" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Bots.AspNetCore" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Attachments" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Attachments.PostgreSql" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Attachments.S3" Version="$(ChatPackageVersion)" />

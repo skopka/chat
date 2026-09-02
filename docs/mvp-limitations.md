@@ -1,5 +1,27 @@
 # MVP limitations and roadmap
 
+## Browser endpoint (0.15.0)
+
+Client.Browser supports the text/foreground stage with encrypted IndexedDB and
+same-origin cookie BFF adapters; see [browser integration](browser.md). A separate
+local unlock phrase is required. It provides no key/phrase recovery, rotation,
+backup/transfer, media preparation, service-worker offline shell, push or guaranteed
+background execution. Browser storage can be cleared/evicted; complete data loss
+cannot restore the previous installation. XSS and malicious same-origin code can
+use an unlocked vault despite non-extractable CryptoKeys. Safari/mobile/private-mode
+deployment behavior is not certified by the Chromium/Firefox desktop gate.
+
+## Owner-hosted bot layer (0.15.0)
+
+The new bot runtime/private gateway handles bounded text/replies only, not edits,
+reactions, attachments, groups, webhooks or managed third-party hosting. Unsupported
+events are durably suppressed and acknowledged. The product host must supply
+trusted profiles, human consent UX/persistence and server admission; these product
+features are not implemented by the generic server. Bot operators can read messages
+addressed to them. Blocking does not erase copies or in-flight effects. Local inbox
+plaintext, protected identity/key-ring custody, quotas, backup and retention are
+deployment responsibilities. See [integration requirements](bots.md).
+
 ## Persistent identity is not account recovery
 
 `0.14.x` adds opt-in ownership proof for enrollment/rebind and protected scoped metadata, not an identity provider. Logout/re-login can retain the same device only when the host preserves its keys, installation scope and history/outbox. Missing/corrupt/unavailable keys never trigger silent replacement. Explicit legacy import keeps old IDs; it does not merge devices or recover lost private keys.

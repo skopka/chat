@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Skopka.Chat.Bots.AspNetCore\Skopka.Chat.Bots.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Bots.Sqlite\Skopka.Chat.Bots.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Client.Storage.Sqlite\Skopka.Chat.Client.Storage.Sqlite.csproj" />
+    <ProjectReference Include="..\..\samples\Skopka.Chat.BotGateway\Skopka.Chat.BotGateway.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+</Project>

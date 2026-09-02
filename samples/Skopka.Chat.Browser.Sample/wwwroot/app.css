@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; background: #121a24; color: #e9eef5; }
+main { max-width: 960px; margin: 48px auto; padding: 24px; }
+button, input, select { font: inherit; padding: 10px; margin: 6px; }
+.notice { color: #d5c59c; font-size: .9rem; }
+fieldset { border: 1px solid #465264; border-radius: 12px; margin-bottom: 24px; }
+textarea { display: block; width: 95%; min-height: 72px; font: inherit; padding: 10px; }
+.composer { padding: 16px; }
+.browser-chat { --skopka-chat-background: #121a24; --skopka-chat-surface: #202c3d; --skopka-chat-own-surface: #214d49; --skopka-chat-text: #e9eef5; --skopka-chat-muted: #b5c3d5; }

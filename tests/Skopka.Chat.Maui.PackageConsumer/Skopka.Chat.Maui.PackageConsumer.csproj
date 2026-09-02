@@ -7,7 +7,7 @@
     <IsPackable>false</IsPackable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.14.0</ChatPackageVersion>
+    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.15.0</ChatPackageVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.1" />

@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using NSec.Cryptography;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client;
@@ -21,10 +20,23 @@ public interface IDeviceBindingTransport
 }
 
 /// <summary>Purpose-specific signing using the current device's protected keys.</summary>
-public sealed class DeviceBindingProofService(IDeviceKeyStore keyStore, TimeProvider timeProvider)
+public sealed class DeviceBindingProofService
 {
-    private readonly IDeviceKeyStore _keys = keyStore ?? throw new ArgumentNullException(nameof(keyStore));
-    private readonly TimeProvider _time = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+    private readonly IDeviceKeyStore _keys;
+    private readonly TimeProvider _time;
+    private readonly IChatCryptographyProvider _crypto;
+
+    /// <summary>Uses the default native provider.</summary>
+    public DeviceBindingProofService(IDeviceKeyStore keyStore, TimeProvider timeProvider)
+        : this(keyStore, timeProvider, ChatCryptographyDefaults.Create()) { }
+
+    /// <summary>Uses the selected endpoint provider; expected context validation remains shared.</summary>
+    public DeviceBindingProofService(IDeviceKeyStore keyStore, TimeProvider timeProvider, IChatCryptographyProvider cryptography)
+    {
+        _keys = keyStore ?? throw new ArgumentNullException(nameof(keyStore));
+        _time = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _crypto = cryptography ?? throw new ArgumentNullException(nameof(cryptography));
+    }
 
     /// <summary>Checks the independently expected context, operation and both keys before signing binding-v1 only.</summary>
     public async ValueTask<DeviceBindingProof> CreateProofAsync(DeviceBindingChallenge challenge,
@@ -43,7 +55,7 @@ public sealed class DeviceBindingProofService(IDeviceKeyStore keyStore, TimeProv
         {
             throw new ChatCryptographicException("Device challenge does not match the expected context.");
         }
-        var local = await new DeviceIdentityService(_keys).LoadPublicAsync(expectedContext.UserId, expectedDevice.DeviceId,
+        var local = await new DeviceIdentityService(_keys, _crypto).LoadPublicAsync(expectedContext.UserId, expectedDevice.DeviceId,
             expectedDevice.RegisteredAt, cancellationToken).ConfigureAwait(false);
         if (local is null || !DeviceBindingEncoding.SameKeys(local, expectedDevice))
         {
@@ -57,13 +69,12 @@ public sealed class DeviceBindingProofService(IDeviceKeyStore keyStore, TimeProv
         var privateBytes = material.ExportSigningPrivateKey();
         try
         {
-            using var key = Key.Import(SignatureAlgorithm.Ed25519, privateBytes, KeyBlobFormat.NSecPrivateKey);
-            if (!key.PublicKey.Export(KeyBlobFormat.RawPublicKey).AsSpan().SequenceEqual(snapshot.Device.SigningPublicKey.Span))
+            if (!_crypto.GetPublicKey(ChatKeyAlgorithm.Ed25519, privateBytes).AsSpan().SequenceEqual(snapshot.Device.SigningPublicKey.Span))
             {
                 throw new ChatCryptographicException("Device ownership keys are inconsistent.");
             }
             cancellationToken.ThrowIfCancellationRequested();
-            return new DeviceBindingProof(snapshot.ChallengeId, SignatureAlgorithm.Ed25519.Sign(key, DeviceBindingEncoding.Encode(snapshot)));
+            return new DeviceBindingProof(snapshot.ChallengeId, _crypto.Sign(privateBytes, DeviceBindingEncoding.Encode(snapshot)));
         }
         catch (Exception exception) when (exception is ArgumentException or CryptographicException or FormatException)
         {

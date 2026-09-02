@@ -6,13 +6,21 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 ## Пакеты
 
+Версия `0.15.0` добавляет `Skopka.Chat.Client.Browser`: standalone Blazor WebAssembly, общий с native клиентский движок, локальная libsodium.js, зашифрованные IndexedDB identity/history/outbox и cookie/BFF-интеграция без OAuth-токенов в браузере. Старые NSec-ключи и серверные протоколы сохранены. Проверяются реальные Chromium и Firefox, включая взаимное E2EE с .NET, перезагрузки и конкурентные вкладки. Описание, ограничения и запускаемый пример — в [руководстве браузерного клиента](docs/browser.md).
+
+В этот же релиз входят `Skopka.Chat.Bots`, `.Bots.Sqlite` и `.Bots.AspNetCore`: текстовый bot-runtime, долговечная очередь и приватный HTTP-шлюз у владельца бота. Основной сервер не расшифровывает сообщения. Подтверждение оператора, экран согласия и серверные правила доступа подключает приложение-хост; без них включать ботов нельзя. См. [интеграцию ботов](docs/bots.md). Согласованный набор — 23 пакета (20 core/bot + 1 browser + 2 MAUI).
+
 - `Skopka.Chat.Protocol` — идентификаторы, лимиты, публичные контракты и каноническое бинарное представление v1; без ASP.NET Core, EF Core и криптографии клиента.
 - `Skopka.Chat.Attachments` — transport-neutral контракт immutable ciphertext storage, авторизация upload/download/delete и общие лимиты; зависит только от Protocol.
 - `Skopka.Chat.Attachments.PostgreSql` — отдельный `AttachmentDbContext`, migration и ограниченное `bytea`-хранилище для небольших зашифрованных файлов.
 - `Skopka.Chat.Attachments.S3` — потоковое S3-compatible хранилище с conditional create, проверкой длины/SHA-256 и без перезаписи объекта.
-- `Skopka.Chat.Client` — идентичность устройства, `IDeviceKeyStore`, X25519/HKDF/XChaCha20-Poly1305/Ed25519 через NSec, типизированный encrypted content (ответы, пересылки, реакции, edit events v3, attachment manifest v2), потоковое шифрование файлов, локальная проекция, fingerprints/security codes, `IChatTransport` и дедупликация.
+- `Skopka.Chat.Client` — общий движок для native/browser: идентичность, `IDeviceKeyStore`, платформенная граница криптографии (по умолчанию NSec на native), typed content, fan-out, файлы, проекции, fingerprints и `IChatTransport`.
+- `Skopka.Chat.Client.Browser` — browser-only криптография и защищённое локальное хранение, постоянная identity, durable очередь и same-origin cookie/CSRF адаптеры. Требуется отдельная локальная фраза разблокировки, не пароль аккаунта.
 - `Skopka.Chat.Client.Storage` — durable journal contracts, восстановление проекций и `ChatSyncCoordinator` с порядком verify/decrypt → store → apply → acknowledge.
 - `Skopka.Chat.Client.Storage.Sqlite` — локальный SQLite-журнал проверенных typed events с атомарной дедупликацией `MessageId`; хранит plaintext и требует host-защиты файла БД.
+- `Skopka.Chat.Bots` — клиентский runtime текстовых ботов с проверкой host-owned согласия и раскрытия оператора.
+- `Skopka.Chat.Bots.Sqlite` — долговечный inbox бота, acknowledgements и идемпотентность исходящих запросов; защита локальной БД остаётся у владельца.
+- `Skopka.Chat.Bots.AspNetCore` — приватный HTTP-шлюз у владельца бота и защищённый Data Protection адаптер identity; не часть основного chat server.
 - `Skopka.Chat.Client.Maui` — адаптеры MAUI `SecureStorage`, lifecycle/session coordination и ограниченная работа с временными plaintext-файлами; зависит от Client/Client.Storage/Media, но не от Server.
 - `Skopka.Chat.Media` — client-side режимы `Auto`/`Media`/`File`, заменяемая подготовка фото/видео и orchestration prepare → encrypt → upload; без server/persistence/UI framework.
 - `Skopka.Chat.Media.FFmpeg` — необязательное локальное JPEG/H.264/AAC преобразование через host-supplied FFmpeg; binary не входит в NuGet-пакет.
@@ -26,7 +34,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Версия пакетов `0.14.0` добавляет постоянную device identity и opt-in enrollment/rebind авторизованных сессий через purpose-bound Ed25519 proof. Logout/re-login сохраняет DeviceId, ключи и пути history/outbox. Новый binding-v1 имеет отдельный domain/canonical format; protocol-v1 и content-v1/v2/v3 bytes не менялись. Binding не заменяет Auth, не восстанавливает потерянные ключи и не добавляет ratchet/forward secrecy. Всего 19 согласованных пакетов (17 core и 2 MAUI). См. [инструкцию подключения](docs/device-identity.md) и [совместимость](docs/protocol-compatibility.md).
+Постоянная device identity и opt-in enrollment/rebind из `0.14.0` сохраняются: logout/re-login не меняет DeviceId, ключи и пути history/outbox. В `0.15.0` protocol-v1, content-v1/v2/v3 и binding-v1 canonical bytes не менялись; текстовый браузерный клиент совместим с сервером `0.14.0`. Ни binding, ни локальное шифрование не заменяют Auth, не восстанавливают потерянные ключи и не добавляют ratchet/forward secrecy. См. [инструкцию подключения](docs/device-identity.md) и [совместимость](docs/protocol-compatibility.md).
 
 ```mermaid
 flowchart LR
@@ -45,6 +53,8 @@ flowchart LR
 ## Документация
 
 - [Индекс документации](docs/README.md)
+- [Браузерный клиент, encrypted vault и BFF](docs/browser.md)
+- [Боты у владельца и граница доверия](docs/bots.md)
 - [Руководство по адаптируемому UI](docs/ui.md)
 - [Руководство по encrypted attachments](docs/attachments.md)
 - [Подготовка фото и видео](docs/media.md)
@@ -330,9 +340,9 @@ dotnet test --project tests/Skopka.Chat.Binding.Tests
 
 Каждая тестовая сборка получает собственный контейнер и удаляет его после выполнения. Для внешней одноразовой БД задайте `SKOPKA_CHAT_POSTGRES`; эта переменная имеет приоритет. Без connection string и флага Testcontainers DB-тесты корректно пропускаются; `SKOPKA_CHAT_POSTGRES_REQUIRED=true` превращает такой пропуск или недоступный Docker в ошибку release-gate.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из девятнадцати пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из двадцати трёх пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый JSON/content/binding fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает девятнадцать `.nupkg` вместе с девятнадцатью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content/binding fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает двадцать три `.nupkg` вместе с двадцатью тремя `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а typed client может использовать `IChatEventStore`/`ChatSyncCoordinator` для durable store-before-ack; `IReceivedMessageStore` остаётся низкоуровневой границей `ChatReceiver`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 

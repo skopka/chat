@@ -20,7 +20,8 @@ public sealed partial class SkopkaChatHttpClient :
     IRecipientDeviceDirectory
 {
     private readonly HttpClient _httpClient;
-    private readonly IAccessTokenProvider _accessTokens;
+    private readonly IAccessTokenProvider? _accessTokens;
+    private readonly IChatHttpRequestAuthorizer? _requestAuthorizer;
     private readonly SkopkaChatHttpClientOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly Uri _baseAddress;
@@ -31,14 +32,26 @@ public sealed partial class SkopkaChatHttpClient :
     /// Creates a client over a host-managed <see cref="HttpClient"/>. Automatic redirects must be disabled;
     /// <c>AddSkopkaChatHttpClient</c> configures that secure default.
     /// </summary>
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public SkopkaChatHttpClient(
         HttpClient httpClient,
         IAccessTokenProvider accessTokens,
         IOptions<SkopkaChatHttpClientOptions> options,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider) : this(httpClient, options, timeProvider)
+    {
+        _accessTokens = accessTokens ?? throw new ArgumentNullException(nameof(accessTokens));
+    }
+
+    /// <summary>Creates a cookie/BFF or other host-authorized client without inventing or storing a bearer token.</summary>
+    public SkopkaChatHttpClient(HttpClient httpClient, IChatHttpRequestAuthorizer requestAuthorizer,
+        IOptions<SkopkaChatHttpClientOptions> options, TimeProvider timeProvider) : this(httpClient, options, timeProvider)
+    {
+        _requestAuthorizer = requestAuthorizer ?? throw new ArgumentNullException(nameof(requestAuthorizer));
+    }
+
+    private SkopkaChatHttpClient(HttpClient httpClient, IOptions<SkopkaChatHttpClientOptions> options, TimeProvider timeProvider)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        _accessTokens = accessTokens ?? throw new ArgumentNullException(nameof(accessTokens));
         ArgumentNullException.ThrowIfNull(options);
         _options = options.Value;
         _options.Validate();
@@ -503,8 +516,7 @@ public sealed partial class SkopkaChatHttpClient :
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        var token = await GetTokenAsync(cancellationToken).ConfigureAwait(false);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
+        await AuthorizeRequestAsync(request, cancellationToken).ConfigureAwait(false);
         try
         {
             var response = await _httpClient.SendAsync(
@@ -539,8 +551,7 @@ public sealed partial class SkopkaChatHttpClient :
         for (var attempt = 0; ; attempt++)
         {
             using var request = requestFactory();
-            var token = await GetTokenAsync(cancellationToken).ConfigureAwait(false);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
+            await AuthorizeRequestAsync(request, cancellationToken).ConfigureAwait(false);
 
             HttpResponseMessage response;
             try
@@ -592,9 +603,14 @@ public sealed partial class SkopkaChatHttpClient :
         }
     }
 
-    private async ValueTask<ChatAccessToken> GetTokenAsync(CancellationToken cancellationToken)
+    private async ValueTask AuthorizeRequestAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var token = await _accessTokens.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+        if (_requestAuthorizer is not null)
+        {
+            await _requestAuthorizer.AuthorizeAsync(request, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        var token = await _accessTokens!.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
         if (token is null)
         {
             throw new ChatAccessTokenException("The access-token provider returned no token.");
@@ -606,7 +622,7 @@ public sealed partial class SkopkaChatHttpClient :
             throw new ChatAccessTokenException("The access token is expired or too close to expiry.");
         }
 
-        return token;
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
     }
 
     private HttpRequestMessage CreateJsonRequest<T>(

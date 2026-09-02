@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
-using NSec.Cryptography;
 using Skopka.Chat.Attachments;
 using BclIncrementalHash = System.Security.Cryptography.IncrementalHash;
 
@@ -11,7 +10,8 @@ namespace Skopka.Chat.Client;
 /// <summary>Streams encrypted attachment chunks without exposing plaintext to storage providers.</summary>
 public static class ChatAttachmentCryptoService
 {
-    private static readonly AeadAlgorithm Aead = AeadAlgorithm.XChaCha20Poly1305;
+    private const int TagBytes = 16;
+    private const int NonceBytes = 24;
     private static readonly byte[] ChunkDomain = Encoding.ASCII.GetBytes("skopka.chat.attachment.chunk.v1");
     private const int FileKeyBytes = 32;
     private const int NoncePrefixBytes = 16;
@@ -30,7 +30,7 @@ public static class ChatAttachmentCryptoService
     /// Encrypts exactly <paramref name="plaintextLength"/> bytes and returns the E2EE manifest to send in an envelope.
     /// The caller must discard the ciphertext destination if this method fails.
     /// </summary>
-    public static async ValueTask<ChatAttachmentContent> EncryptAsync(
+    public static ValueTask<ChatAttachmentContent> EncryptAsync(
         Stream plaintext,
         long plaintextLength,
         Stream ciphertext,
@@ -41,8 +41,18 @@ public static class ChatAttachmentCryptoService
         string? caption = null,
         ChatContentId? replyToContentId = null,
         int chunkPlaintextBytes = DefaultChunkPlaintextBytes,
+        CancellationToken cancellationToken = default) =>
+        EncryptAsync(ChatCryptographyDefaults.Create(), plaintext, plaintextLength, ciphertext, attachmentId, contentId,
+            fileName, mediaType, caption, replyToContentId, chunkPlaintextBytes, cancellationToken);
+
+    /// <summary>Encrypts attachment chunks with an explicit endpoint provider and unchanged chunk-v1 framing.</summary>
+    public static async ValueTask<ChatAttachmentContent> EncryptAsync(
+        IChatCryptographyProvider cryptography, Stream plaintext, long plaintextLength, Stream ciphertext,
+        AttachmentId attachmentId, ChatContentId contentId, string fileName, string mediaType,
+        string? caption = null, ChatContentId? replyToContentId = null, int chunkPlaintextBytes = DefaultChunkPlaintextBytes,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(cryptography);
         ArgumentNullException.ThrowIfNull(plaintext);
         ArgumentNullException.ThrowIfNull(ciphertext);
         if (!plaintext.CanRead)
@@ -63,10 +73,9 @@ public static class ChatAttachmentCryptoService
         var fileKey = RandomNumberGenerator.GetBytes(FileKeyBytes);
         var noncePrefix = RandomNumberGenerator.GetBytes(NoncePrefixBytes);
         var plaintextBuffer = ArrayPool<byte>.Shared.Rent(chunkPlaintextBytes);
-        var encryptedBuffer = ArrayPool<byte>.Shared.Rent(chunkPlaintextBytes + Aead.TagSize);
+        var encryptedBuffer = ArrayPool<byte>.Shared.Rent(chunkPlaintextBytes + TagBytes);
         try
         {
-            using var key = Key.Import(Aead, fileKey, KeyBlobFormat.RawSymmetricKey);
             using var hash = BclIncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             var chunkCount = GetChunkCount(plaintextLength, chunkPlaintextBytes);
             var remaining = plaintextLength;
@@ -91,13 +100,14 @@ public static class ChatAttachmentCryptoService
                     plaintextLength,
                     chunkLength,
                     final);
-                var encryptedLength = chunkLength + Aead.TagSize;
-                Aead.Encrypt(
-                    key,
+                var encryptedLength = chunkLength + TagBytes;
+                var encrypted = cryptography.Encrypt(
+                    fileKey,
                     nonce,
                     associatedData,
-                    plaintextBuffer.AsSpan(0, chunkLength),
-                    encryptedBuffer.AsSpan(0, encryptedLength));
+                    plaintextBuffer.AsSpan(0, chunkLength));
+                encrypted.CopyTo(encryptedBuffer, 0);
+                CryptographicOperations.ZeroMemory(encrypted);
 
                 await ciphertext.WriteAsync(frameLength, cancellationToken).ConfigureAwait(false);
                 await ciphertext.WriteAsync(encryptedBuffer.AsMemory(0, encryptedLength), cancellationToken)
@@ -132,7 +142,7 @@ public static class ChatAttachmentCryptoService
         {
             CryptographicOperations.ZeroMemory(fileKey);
             CryptographicOperations.ZeroMemory(plaintextBuffer.AsSpan(0, chunkPlaintextBytes));
-            CryptographicOperations.ZeroMemory(encryptedBuffer.AsSpan(0, chunkPlaintextBytes + Aead.TagSize));
+            CryptographicOperations.ZeroMemory(encryptedBuffer.AsSpan(0, chunkPlaintextBytes + TagBytes));
             ArrayPool<byte>.Shared.Return(plaintextBuffer);
             ArrayPool<byte>.Shared.Return(encryptedBuffer);
         }
@@ -141,12 +151,18 @@ public static class ChatAttachmentCryptoService
     /// <summary>
     /// Authenticates and decrypts a complete stored blob. The caller must discard the destination if this method fails.
     /// </summary>
-    public static async ValueTask DecryptAsync(
+    public static ValueTask DecryptAsync(
         ChatAttachmentContent manifest,
         Stream ciphertext,
         Stream plaintext,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        DecryptAsync(ChatCryptographyDefaults.Create(), manifest, ciphertext, plaintext, cancellationToken);
+
+    /// <summary>Decrypts unchanged chunk-v1 framing with an explicit provider; discard partial output on failure.</summary>
+    public static async ValueTask DecryptAsync(IChatCryptographyProvider cryptography, ChatAttachmentContent manifest,
+        Stream ciphertext, Stream plaintext, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(cryptography);
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(ciphertext);
         ArgumentNullException.ThrowIfNull(plaintext);
@@ -160,11 +176,10 @@ public static class ChatAttachmentCryptoService
             throw new ArgumentException("Plaintext stream must be writable.", nameof(plaintext));
         }
 
-        var encryptedBuffer = ArrayPool<byte>.Shared.Rent(manifest.ChunkPlaintextBytes + Aead.TagSize);
+        var encryptedBuffer = ArrayPool<byte>.Shared.Rent(manifest.ChunkPlaintextBytes + TagBytes);
         var plaintextBuffer = ArrayPool<byte>.Shared.Rent(manifest.ChunkPlaintextBytes);
         try
         {
-            using var key = Key.Import(Aead, manifest.FileKey.Span, KeyBlobFormat.RawSymmetricKey);
             using var hash = BclIncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             var chunkCount = GetChunkCount(manifest.PlaintextLength, manifest.ChunkPlaintextBytes);
             var remaining = manifest.PlaintextLength;
@@ -182,7 +197,7 @@ public static class ChatAttachmentCryptoService
                     throw new ChatCryptographicException("Attachment authentication failed.");
                 }
 
-                var encryptedLength = chunkLength + Aead.TagSize;
+                var encryptedLength = chunkLength + TagBytes;
                 await ReadExactlyAsync(
                     ciphertext,
                     encryptedBuffer.AsMemory(0, encryptedLength),
@@ -198,15 +213,17 @@ public static class ChatAttachmentCryptoService
                     manifest.PlaintextLength,
                     chunkLength,
                     final);
-                if (!Aead.Decrypt(
-                        key,
+                var decrypted = cryptography.Decrypt(
+                        manifest.FileKey.Span,
                         nonce,
                         associatedData,
-                        encryptedBuffer.AsSpan(0, encryptedLength),
-                        plaintextBuffer.AsSpan(0, chunkLength)))
+                        encryptedBuffer.AsSpan(0, encryptedLength));
+                if (decrypted is null)
                 {
                     throw new ChatCryptographicException("Attachment authentication failed.");
                 }
+                decrypted.CopyTo(plaintextBuffer, 0);
+                CryptographicOperations.ZeroMemory(decrypted);
 
                 await plaintext.WriteAsync(plaintextBuffer.AsMemory(0, chunkLength), cancellationToken)
                     .ConfigureAwait(false);
@@ -227,7 +244,7 @@ public static class ChatAttachmentCryptoService
         }
         finally
         {
-            CryptographicOperations.ZeroMemory(encryptedBuffer.AsSpan(0, manifest.ChunkPlaintextBytes + Aead.TagSize));
+            CryptographicOperations.ZeroMemory(encryptedBuffer.AsSpan(0, manifest.ChunkPlaintextBytes + TagBytes));
             CryptographicOperations.ZeroMemory(plaintextBuffer.AsSpan(0, manifest.ChunkPlaintextBytes));
             ArrayPool<byte>.Shared.Return(encryptedBuffer);
             ArrayPool<byte>.Shared.Return(plaintextBuffer);
@@ -247,7 +264,7 @@ public static class ChatAttachmentCryptoService
         try
         {
             var chunkCount = GetChunkCount(plaintextLength, chunkPlaintextBytes);
-            ciphertextLength = checked(plaintextLength + (chunkCount * (FrameLengthBytes + Aead.TagSize)));
+            ciphertextLength = checked(plaintextLength + (chunkCount * (FrameLengthBytes + TagBytes)));
             return ciphertextLength <= AttachmentStorageLimits.MaxCiphertextBytes;
         }
         catch (OverflowException)
@@ -261,7 +278,7 @@ public static class ChatAttachmentCryptoService
 
     private static byte[] CreateNonce(ReadOnlySpan<byte> noncePrefix, long chunkIndex)
     {
-        var nonce = new byte[Aead.NonceSize];
+        var nonce = new byte[NonceBytes];
         noncePrefix.CopyTo(nonce);
         BinaryPrimitives.WriteInt64BigEndian(nonce.AsSpan(NoncePrefixBytes), chunkIndex);
         return nonce;

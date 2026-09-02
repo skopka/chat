@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <PackageId>Skopka.Chat.Client.Browser</PackageId>
+    <Description>Browser-only E2EE cryptography, encrypted IndexedDB identity/history/outbox and same-origin BFF adapters.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Skopka.Chat.Client/Skopka.Chat.Client.csproj" />
+    <ProjectReference Include="../Skopka.Chat.Client.Storage/Skopka.Chat.Client.Storage.csproj" />
+    <ProjectReference Include="../Skopka.Chat.Client.Http/Skopka.Chat.Client.Http.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+  </ItemGroup>
+</Project>

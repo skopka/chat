@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using SharpFuzz;
+using Skopka.Chat.Bots.AspNetCore;
 using Skopka.Chat.Client;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Transport.Http;
@@ -125,9 +126,24 @@ internal static class ChatFuzzTarget
                 case 14:
                     _ = RoundTrip(json, SkopkaChatHttpJsonContext.Default.DeviceBindingResultResponse)?.ToDomain();
                     break;
-                default:
+                case 15:
                     var challenge = DeviceBindingEncoding.Decode(DecodeContentSeed(json));
                     _ = DeviceBindingEncoding.Decode(DeviceBindingEncoding.Encode(challenge));
+                    break;
+                case 16:
+                    RoundTrip(json, BotHttpJson.Default.SendRequest);
+                    break;
+                case 17:
+                    RoundTrip(json, BotHttpJson.Default.UpdatesRequest);
+                    break;
+                case 18:
+                    RoundTrip(json, BotHttpJson.Default.AcknowledgeRequest);
+                    break;
+                case 19:
+                    RoundTrip(json, BotIdentityJson.Default.KeyRecord);
+                    break;
+                default:
+                    RoundTrip(json, BotIdentityJson.Default.MetadataRecord);
                     break;
             }
         }
@@ -178,13 +194,13 @@ internal static class ChatFuzzTarget
                 value = (value * 10) + input[index] - (byte)'0';
             }
 
-            if (value is >= 0 and <= 15)
+            if (value is >= 0 and <= 20)
             {
                 return (byte)value;
             }
         }
 
-        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 16);
+        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 21);
     }
 
     private static byte[] DecodeContentSeed(ReadOnlySpan<byte> value)

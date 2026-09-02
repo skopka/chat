@@ -1,0 +1,62 @@
+@using Skopka.Chat.UI.Blazor
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<main>
+    <h1>Skopka.Chat · Browser E2EE</h1>
+    <p>Local demonstration. Messages and private keys remain in this WebAssembly client.</p>
+    <p class="notice">Unaudited protocol-v1 MVP. Compare device security codes through a trusted channel. Clearing browser data or forgetting the separate vault phrase can permanently lose keys and history.</p>
+    <p id="status" role="status">@_status</p>
+    <fieldset disabled="@_busy">
+        @if (_account is null)
+        {
+            <label>Demo account <select @bind="_selectedAccount"><option value="alice">Alice</option><option value="bob">Bob</option></select></label>
+            <button id="login" @onclick="LoginAsync">Log in locally</button>
+        }
+        else
+        {
+            <p id="account">Account: @_account.UserId</p>
+            <button id="logout" @onclick="LogoutAsync">Log out and lock vault</button>
+            @if (_vault is null)
+            {
+                <label>Separate local vault phrase <input id="phrase" type="password" autocomplete="off" @bind="_phrase" /></label>
+                <button id="unlock" @onclick="() => UnlockAsync(false)">Unlock existing vault</button>
+                <button id="create-vault" @onclick="() => UnlockAsync(true)">Create vault explicitly</button>
+            }
+            else if (_device is null)
+            {
+                @if (_identityState == PersistentDeviceIdentityState.Absent)
+                {
+                    <button id="create-device" @onclick="CreateDeviceAsync">Connect this installation: create device</button>
+                }
+                else
+                {
+                    <p>Recovery required. Keys are not replaced automatically. Ask the host to revoke the lost device before explicitly enrolling another installation.</p>
+                }
+            }
+            else
+            {
+                <p id="device">Device: @_device.DeviceId</p>
+                <button id="bind" @onclick="BindAsync">Enroll / rebind current session</button>
+                @if (_api is not null && _session is not null)
+                {
+                    <button id="conversation" @onclick="SelectConversationAsync">Open test conversation with the other account</button>
+                    <button id="sync" @onclick="SynchronizeAsync">Receive / retry queued messages</button>
+                }
+            }
+        }
+    </fieldset>
+    @if (_chat is not null)
+    {
+        <SkopkaChat ViewModel="_chat" ShowMessageActions="false" CssClass="browser-chat">
+            <ComposerTemplate>
+                <div class="composer">
+                    <label>Message <textarea id="message" maxlength="12000" @bind="_draft" disabled="@_busy"></textarea></label>
+                    <button id="send" @onclick="SendAsync" disabled="@_busy">Save locally and send</button>
+                </div>
+            </ComposerTemplate>
+        </SkopkaChat>
+        <button id="older" @onclick="LoadOlderAsync" disabled="@(_busy || _pager?.HasOlder != true)">Load older messages</button>
+    }
+</main>

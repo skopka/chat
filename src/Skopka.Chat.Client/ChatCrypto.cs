@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using NSec.Cryptography;
 using Skopka.Chat.Protocol;
 
 namespace Skopka.Chat.Client;
@@ -17,15 +16,18 @@ public sealed class ChatCryptographicException : CryptographicException
 /// <summary>Encrypts and authenticates protocol-v1 recipient envelopes.</summary>
 public sealed class ChatCryptoService
 {
-    private static readonly KeyAgreementAlgorithm Agreement = KeyAgreementAlgorithm.X25519;
-    private static readonly SignatureAlgorithm Signature = SignatureAlgorithm.Ed25519;
-    private static readonly AeadAlgorithm Aead = AeadAlgorithm.XChaCha20Poly1305;
-    private static readonly KeyDerivationAlgorithm Kdf = KeyDerivationAlgorithm.HkdfSha256;
+    private readonly IChatCryptographyProvider _crypto;
     private readonly IDeviceKeyStore _keyStore;
 
     /// <summary>Creates a crypto service over the device private-key store.</summary>
-    public ChatCryptoService(IDeviceKeyStore keyStore) =>
+    public ChatCryptoService(IDeviceKeyStore keyStore) : this(keyStore, ChatCryptographyDefaults.Create()) { }
+
+    /// <summary>Creates a service with an explicitly selected endpoint primitive provider.</summary>
+    public ChatCryptoService(IDeviceKeyStore keyStore, IChatCryptographyProvider cryptography)
+    {
         _keyStore = keyStore ?? throw new ArgumentNullException(nameof(keyStore));
+        _crypto = cryptography ?? throw new ArgumentNullException(nameof(cryptography));
+    }
 
     /// <summary>UTF-8 encodes and encrypts one text message for exactly one recipient device.</summary>
     public ValueTask<EncryptedEnvelope> EncryptTextAsync(
@@ -104,16 +106,13 @@ public sealed class ChatCryptoService
 
         var material = await LoadRequiredAsync(senderDeviceId, cancellationToken).ConfigureAwait(false);
         var signingPrivate = material.ExportSigningPrivateKey();
+        byte[]? ephemeralPrivate = null;
+        byte[]? contentKey = null;
         try
         {
-            using var signingKey = Key.Import(Signature, signingPrivate, KeyBlobFormat.NSecPrivateKey);
-            using var ephemeralKey = Key.Create(Agreement);
-            var recipientPublicKey = PublicKey.Import(Agreement, recipient.EncryptionPublicKey.Span, KeyBlobFormat.RawPublicKey);
-            using var sharedSecret = Agreement.Agree(ephemeralKey, recipientPublicKey) ??
-                throw new ChatCryptographicException("Key agreement failed.");
-
+            ephemeralPrivate = _crypto.CreatePrivateKey(ChatKeyAlgorithm.X25519);
             var nonce = RandomNumberGenerator.GetBytes(ProtocolLimits.NonceBytes);
-            var ephemeralPublic = ephemeralKey.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+            var ephemeralPublic = _crypto.GetPublicKey(ChatKeyAlgorithm.X25519, ephemeralPrivate);
             var unsigned = CreateEnvelope(
                 messageId,
                 conversationId,
@@ -128,9 +127,9 @@ public sealed class ChatCryptoService
                 new byte[ProtocolLimits.AuthenticationTagBytes],
                 new byte[ProtocolLimits.SignatureBytes]);
             var associatedData = CanonicalEnvelopeEncoding.EncodeAssociatedData(unsigned);
-            using var contentKey = Kdf.DeriveKey(sharedSecret, nonce, associatedData, Aead);
-            var encrypted = Aead.Encrypt(contentKey, nonce, associatedData, plaintext.Span);
-            var ciphertextLength = encrypted.Length - Aead.TagSize;
+            contentKey = _crypto.DeriveEnvelopeKey(ephemeralPrivate, recipient.EncryptionPublicKey.Span, nonce, associatedData);
+            var encrypted = _crypto.Encrypt(contentKey, nonce, associatedData, plaintext.Span);
+            var ciphertextLength = encrypted.Length - ProtocolLimits.AuthenticationTagBytes;
             var ciphertext = encrypted.AsSpan(0, ciphertextLength).ToArray();
             var tag = encrypted.AsSpan(ciphertextLength).ToArray();
             var toSign = CreateEnvelope(
@@ -146,7 +145,7 @@ public sealed class ChatCryptoService
                 ciphertext,
                 tag,
                 new byte[ProtocolLimits.SignatureBytes]);
-            var signature = Signature.Sign(signingKey, CanonicalEnvelopeEncoding.EncodeForSignature(toSign));
+            var signature = _crypto.Sign(signingPrivate, CanonicalEnvelopeEncoding.EncodeForSignature(toSign));
             var result = CreateEnvelope(
                 messageId,
                 conversationId,
@@ -170,6 +169,8 @@ public sealed class ChatCryptoService
         finally
         {
             CryptographicOperations.ZeroMemory(signingPrivate);
+            if (ephemeralPrivate is not null) { CryptographicOperations.ZeroMemory(ephemeralPrivate); }
+            if (contentKey is not null) { CryptographicOperations.ZeroMemory(contentKey); }
         }
     }
 
@@ -186,19 +187,16 @@ public sealed class ChatCryptoService
             throw new ChatCryptographicException("Sender identity does not match the envelope.");
         }
 
-        PublicKey senderSigningKey;
         try
         {
-            senderSigningKey = PublicKey.Import(Signature, sender.SigningPublicKey.Span, KeyBlobFormat.RawPublicKey);
+            if (!_crypto.Verify(sender.SigningPublicKey.Span, CanonicalEnvelopeEncoding.EncodeForSignature(envelope), envelope.Signature.Span))
+            {
+                throw new ChatCryptographicException("Envelope signature verification failed.");
+            }
         }
         catch (FormatException)
         {
             throw new ChatCryptographicException("Sender public key is invalid.");
-        }
-
-        if (!Signature.Verify(senderSigningKey, CanonicalEnvelopeEncoding.EncodeForSignature(envelope), envelope.Signature.Span))
-        {
-            throw new ChatCryptographicException("Envelope signature verification failed.");
         }
 
         var material = await LoadRequiredAsync(envelope.RecipientDeviceId, cancellationToken).ConfigureAwait(false);
@@ -208,18 +206,15 @@ public sealed class ChatCryptoService
         }
 
         var encryptionPrivate = material.ExportEncryptionPrivateKey();
+        byte[]? contentKey = null;
         try
         {
-            using var recipientKey = Key.Import(Agreement, encryptionPrivate, KeyBlobFormat.NSecPrivateKey);
-            var ephemeralPublic = PublicKey.Import(Agreement, envelope.EphemeralPublicKey.Span, KeyBlobFormat.RawPublicKey);
-            using var sharedSecret = Agreement.Agree(recipientKey, ephemeralPublic) ??
-                throw new ChatCryptographicException("Key agreement failed.");
             var associatedData = CanonicalEnvelopeEncoding.EncodeAssociatedData(envelope);
-            using var contentKey = Kdf.DeriveKey(sharedSecret, envelope.Nonce.Span, associatedData, Aead);
+            contentKey = _crypto.DeriveEnvelopeKey(encryptionPrivate, envelope.EphemeralPublicKey.Span, envelope.Nonce.Span, associatedData);
             var encrypted = new byte[envelope.Ciphertext.Length + envelope.AuthenticationTag.Length];
             envelope.Ciphertext.Span.CopyTo(encrypted);
             envelope.AuthenticationTag.Span.CopyTo(encrypted.AsSpan(envelope.Ciphertext.Length));
-            return Aead.Decrypt(contentKey, envelope.Nonce.Span, associatedData, encrypted) ??
+            return _crypto.Decrypt(contentKey, envelope.Nonce.Span, associatedData, encrypted) ??
                 throw new ChatCryptographicException("Envelope authentication failed.");
         }
         catch (FormatException)
@@ -229,6 +224,7 @@ public sealed class ChatCryptoService
         finally
         {
             CryptographicOperations.ZeroMemory(encryptionPrivate);
+            if (contentKey is not null) { CryptographicOperations.ZeroMemory(contentKey); }
         }
     }
 

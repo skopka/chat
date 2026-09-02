@@ -1,0 +1,11 @@
+{
+  "name": "skopka-chat-browser-tooling",
+  "private": true,
+  "type": "module",
+  "scripts": { "vendor": "node vendor.mjs", "test": "node browser-tests.mjs" },
+  "dependencies": {
+    "libsodium-sumo": "0.8.4",
+    "libsodium-wrappers-sumo": "0.8.4",
+    "playwright": "1.62.1"
+  }
+}

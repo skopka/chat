@@ -1,13 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework />
+    <TargetFrameworks>net10.0;net10.0-browser</TargetFrameworks>
     <PackageId>Skopka.Chat.Client</PackageId>
     <Description>Client-side identity, E2EE, typed chat content, reactions and local projection for Skopka.Chat.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Skopka.Chat.Attachments\Skopka.Chat.Attachments.csproj" />
     <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />
-    <PackageReference Include="NSec.Cryptography" />
+    <PackageReference Include="NSec.Cryptography" Condition="'$(TargetFramework)' == 'net10.0'" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-browser'">
+    <Compile Remove="NSecChatCryptography.cs" />
   </ItemGroup>
 
 </Project>

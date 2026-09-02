@@ -39,13 +39,17 @@ Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitatio
 | `src/Skopka.Chat.Attachments` | Opaque attachment IDs, immutable ciphertext storage and host authorization contracts | Protocol only |
 | `src/Skopka.Chat.Attachments.PostgreSql` | Isolated bounded `bytea` attachment storage and migration | Attachments + EF Core/Npgsql |
 | `src/Skopka.Chat.Attachments.S3` | S3-compatible immutable encrypted-object storage | Attachments + reviewed AWS S3 SDK |
-| `src/Skopka.Chat.Client` | Device identity, key storage abstractions, NSec envelope/file cryptography, typed encrypted content/projection, fingerprints, receive deduplication, `IChatTransport` | Protocol + Attachments, plus the reviewed crypto dependency |
+| `src/Skopka.Chat.Client` | Shared identity, canonical envelope/file orchestration, primitive-provider boundary, typed content and fan-out; native + browser targets | Protocol + Attachments; reviewed NSec on native target only |
+| `src/Skopka.Chat.Client.Browser` | Browser-only libsodium.js provider, encrypted IndexedDB, Web Locks, durable jobs/session and cookie BFF adapters | Client + Client.Storage + Client.Http + WebAssembly; never Server or native storage |
 | `src/Skopka.Chat.Client.Storage` | Durable verified-event journal contracts, projection replay and store/apply/ack coordinator | Client only; never transport, server or a database provider |
 | `src/Skopka.Chat.Client.Storage.Sqlite` | Local SQLite implementation of the verified-event journal | Client.Storage + reviewed SQLite provider; never server persistence |
+| `src/Skopka.Chat.Bots` | Owner-hosted text bot runtime, disclosure, live consent and inbox contracts | Client only; never Server or persistence |
+| `src/Skopka.Chat.Bots.Sqlite` | Local bot inbox, suppression/ack tombstones and send request idempotency | Bots + reviewed SQLite provider |
+| `src/Skopka.Chat.Bots.AspNetCore` | Private bot HTTP gateway and Data Protection-backed file identity adapter | Bots + ASP.NET Core; never Server |
 | `src/Skopka.Chat.Media` | Client-side media preparation contracts and prepare/encrypt/upload orchestration | Client only; never transport, server, persistence, or a media executable |
 | `src/Skopka.Chat.Media.FFmpeg` | Optional FFmpeg photo/video transformer over a host-protected plaintext work directory | Media only; the host supplies and maintains the executable |
 | `src/Skopka.Chat.UI.Core` | Framework-independent conversation presentation state and host-owned send boundary | Client only; never transport, server, persistence, or a UI framework |
-| `src/Skopka.Chat.UI.Blazor` | Themeable, replaceable Blazor components and localized UI strings | UI.Core plus the ASP.NET Core shared framework; never server or persistence |
+| `src/Skopka.Chat.UI.Blazor` | Themeable, replaceable Blazor components and localized UI strings | UI.Core plus Components.Web; no ASP.NET Core framework reference, server or persistence |
 | `src/Skopka.Chat.Transport.Http` | Shared routes, HTTP DTOs, limits, mappings, strict source-generated JSON metadata | Protocol only |
 | `src/Skopka.Chat.Client.Http` | Authenticated typed HTTP client, bounded responses, retries and encrypted attachment upload adapter | Client + Media + Transport.Http; never Server |
 | `src/Skopka.Chat.Server` | Transport-neutral device/conversation/envelope engine and repository contracts | Protocol only; never Client or ASP.NET Core |
@@ -149,6 +153,8 @@ Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external data
 - Attachment crypto/storage/HTTP changes: run Client, Attachments, both HTTP projects, content fuzz replay/AFL++, and the attachment PostgreSQL gate; test truncation, trailing data, tampering, ID conflict, authorization and partial-destination behavior.
 - Media preparation changes: run Media tests plus Client and Client.Http tests; prove exact `File` bypass, `Auto` fallback, generated path isolation, bounded output, generic failures and prepare-before-encrypt ordering. A fake runner does not certify a deployment's FFmpeg binary; run the opt-in synthetic conformance gate against the selected host build.
 - Authentication/authorization changes: include missing, malformed, duplicate, and cross-user/device negative cases; never use untrusted headers as a production authentication example.
+- Bot changes: run `Skopka.Chat.Bots.Tests`, strict JSON/content fuzz replay, Client.Storage and HTTP integration tests; preserve deny-by-default host consent, operator revision, two-stage acknowledgement, exact outbox retries and create-only protected identity. Read ADR 0018; never implement a plaintext gateway in Server.
+- Browser changes: read ADR 0019 and `docs/browser.md`; run `node eng/browser/run-gate.mjs` in real Chromium and Firefox, native/binding/HTTP/storage/UI regressions and the browser NuGet consumer. Keep crypto vendored and pinned; never silently change NSecPrivateKey or portable-key/vault versions. No plaintext IndexedDB/localStorage, server prerender or fake bearer tokens. Explicit installation/vault/device creation and cross-tab reserve/create/finalize remain mandatory.
 - Identity/binding changes: run Binding and Client.Maui tests, binding corpus replay, required owned-container PostgreSQL restart/atomicity and HTTP re-login/history/outbox gates. Update `docs/device-identity.md` and ADR 0017. Custom stores must preserve create-only and crash-recovery semantics.
 - Dependency changes: update only `Directory.Packages.props`, review transitive/native impact, restore, and run the complete gate.
 - Documentation-only changes: run `git diff --check` and validate every local link/path and every command against the repository.
@@ -179,7 +185,7 @@ Before a requested release or version commit:
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly nineteen versioned `.nupkg` and nineteen matching `.snupkg` files were produced in `artifacts/packages`, run both core and MAUI package consumers, and ensure the working tree is clean.
+6. Confirm exactly twenty-three versioned `.nupkg` and twenty-three matching `.snupkg` files were produced in `artifacts/packages`, run core, browser and MAUI package consumers, and ensure the working tree is clean.
 
 Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 

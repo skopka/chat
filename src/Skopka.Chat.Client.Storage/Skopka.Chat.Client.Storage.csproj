@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework />
+    <TargetFrameworks>net10.0;net10.0-browser</TargetFrameworks>
     <PackageId>Skopka.Chat.Client.Storage</PackageId>
     <Description>Durable verified-event storage contracts and safe receive synchronization for Skopka.Chat clients.</Description>
   </PropertyGroup>

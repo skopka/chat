@@ -1,6 +1,12 @@
 # Documentation index
 
+- [Browser WebAssembly client, encrypted vault and BFF integration](browser.md)
+- [ADR 0019: browser cryptography and storage](adr/0019-browser-client-cryptography-and-vault.md)
+
 ## Build and architecture
+
+- [`bots.md`](bots.md) — owner-hosted bot runtime, private gateway and mandatory host consent integration (0.15.0).
+- [`adr/0018-self-hosted-bots.md`](adr/0018-self-hosted-bots.md) — endpoint key custody, grants, durable updates and private API boundary.
 
 - [`device-identity.md`](device-identity.md) — persistent identity, safe enrollment/rebind, validated sub/sid host example, migration and logout policy.
 - [`development.md`](development.md) — local setup, dependency graph, test matrix, PostgreSQL gates, packaging, and contribution workflow.

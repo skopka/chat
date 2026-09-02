@@ -9,6 +9,7 @@ public static class SkopkaChatHttpClientServiceCollectionExtensions
     /// Registers one transient typed client. The host must separately register
     /// <see cref="Skopka.Chat.Client.Http.IAccessTokenProvider"/>.
     /// </summary>
+    /// <remarks>Native bearer registration only. WASM hosts compose their cookie/BFF client with a browser handler.</remarks>
     public static IHttpClientBuilder AddSkopkaChatHttpClient(
         this IServiceCollection services,
         Uri baseAddress,
@@ -17,6 +18,10 @@ public static class SkopkaChatHttpClientServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(baseAddress);
         ArgumentNullException.ThrowIfNull(configure);
+        if (OperatingSystem.IsBrowser())
+        {
+            throw new PlatformNotSupportedException("Use an explicit browser cookie/BFF client.");
+        }
 
         services.AddOptions<Skopka.Chat.Client.Http.SkopkaChatHttpClientOptions>()
             .Configure(configure);
@@ -34,10 +39,17 @@ public static class SkopkaChatHttpClientServiceCollectionExtensions
             {
                 client.BaseAddress = baseAddress;
             })
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            .ConfigurePrimaryHttpMessageHandler(() =>
             {
-                AllowAutoRedirect = false,
-                PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+                if (OperatingSystem.IsBrowser())
+                {
+                    throw new PlatformNotSupportedException("A native HTTP handler is required.");
+                }
+                return new SocketsHttpHandler
+                {
+                    AllowAutoRedirect = false,
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+                };
             });
     }
 }

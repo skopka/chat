@@ -1,5 +1,26 @@
 # Protocol and package compatibility
 
+## Browser endpoint in 0.15.0
+
+Client adds a browser TFM and trusted primitive provider without changing
+protocol-v1/content-v1/v2/v3/binding-v1 canonical bytes or HTTP DTOs. Native
+NSecPrivateKey creation/read stays supported. Portable private-key container v1
+is an explicit endpoint-local format; it is not transmitted by the server.
+Browser vault schema/record version 1 and local Argon2id/AES-GCM parameters are
+separate from all wire versions. Browser ↔ native ciphertext and binding
+signatures are tested in Chromium/Firefox. Existing 0.14.0 servers need no new
+text protocol. See [ADR 0019](adr/0019-browser-client-cryptography-and-vault.md).
+
+## Bot integration in 0.15.0
+
+The Bots/Bots.Sqlite/Bots.AspNetCore packages add a text-only private API and
+endpoint-local storage. Envelope-v1, content-v1/v2/v3 and binding-v1 canonical
+bytes are unchanged. Bot inbox schema 1 and protected file identity JSON v1 are
+separate new local formats. Non-text/oversized events are suppressed by the initial
+bot API, not reinterpreted as commands. No server bot ACL schema is added; the
+product host must integrate trusted consent and admission before enabling bots.
+See [bots](bots.md) and [ADR 0018](adr/0018-self-hosted-bots.md).
+
 ## Versioning
 
 NuGet packages use SemVer. The initial package version was `0.1.0`; public APIs and the wire format may evolve before `1.0.0`, but already published protocol versions are never silently reinterpreted.
@@ -37,6 +58,7 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.12.x` | v1 | v1 | Adds encrypted content-v3 edits, adaptable edit UI, durable verified client-event storage/synchronization and optional SQLite. Content v1/v2 and protocol-v1 canonical bytes remain unchanged. |
 | `0.13.x` | v1 | v1 | Adds conversation/device directory APIs, retry-safe multi-device fan-out, durable outbox/history paging and optional MAUI client/UI adapters. Content v1/v2/v3 and protocol-v1 canonical bytes remain unchanged. |
 | `0.14.x` | v1 | v1 | Adds persistent identity and opt-in session-binding-v1, an optional Server.NSec verifier and atomic PostgreSQL enrollment/binding. Encrypted envelope/content bytes unchanged. |
+| `0.15.x` | v1 | v1 | Adds browser cryptography/encrypted local vault, cookie-BFF adapters and owner-hosted text bots. Native NSec key storage remains supported; envelope/content/binding bytes and existing server HTTP contracts are unchanged. Coordinated set: 23 packages. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
 

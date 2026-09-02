@@ -122,6 +122,9 @@ jobs:
       - name: Audit NuGet dependencies
         run: dotnet list Skopka.Chat.Core.slnf package --vulnerable --include-transitive --no-restore
 
+      - name: Verify owner-hosted bot gateway Linux container
+        run: docker build --target checks -f samples/Skopka.Chat.BotGateway/Dockerfile -t skopka-chat-bot-checks:release-check .
+
       - name: Pack
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
@@ -146,6 +149,7 @@ jobs:
             "Skopka.Chat.Attachments.PostgreSql"
             "Skopka.Chat.Attachments.S3"
             "Skopka.Chat.Client"
+            "Skopka.Chat.Client.Browser"
             "Skopka.Chat.Client.Storage"
             "Skopka.Chat.Client.Storage.Sqlite"
             "Skopka.Chat.Media"
@@ -156,6 +160,9 @@ jobs:
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Server"
             "Skopka.Chat.Server.NSec"
+            "Skopka.Chat.Bots"
+            "Skopka.Chat.Bots.Sqlite"
+            "Skopka.Chat.Bots.AspNetCore"
             "Skopka.Chat.Server.AspNetCore"
             "Skopka.Chat.Persistence.PostgreSql"
           )
@@ -172,8 +179,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 17 || "$SNUPKG_COUNT" -ne 17 ]]; then
-            echo "Expected 17 packages and 17 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 21 || "$SNUPKG_COUNT" -ne 21 ]]; then
+            echo "Expected 21 packages and 21 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
@@ -195,6 +202,22 @@ jobs:
           --configuration Release
           --no-restore
           -p:ChatPackageVersion="$RELEASE_VERSION"
+
+
+      - name: Set up browser test runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.19.0'
+
+      - name: Install pinned browser test dependencies
+        run: |
+          npx --yes pnpm@11.19.0 --dir eng/browser install --frozen-lockfile --ignore-scripts
+          node eng/browser/node_modules/playwright/cli.js install --with-deps chromium firefox
+
+      - name: Require published browser package, native interop, storage and cookie BFF gates
+        env:
+          CHAT_BROWSER_PACKAGE_VERSION: ${{ steps.version.outputs.value }}
+        run: node eng/browser/run-gate.mjs
 
       - name: Upload core release packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -383,6 +406,7 @@ jobs:
             "Skopka.Chat.Attachments.PostgreSql"
             "Skopka.Chat.Attachments.S3"
             "Skopka.Chat.Client"
+            "Skopka.Chat.Client.Browser"
             "Skopka.Chat.Client.Storage"
             "Skopka.Chat.Client.Storage.Sqlite"
             "Skopka.Chat.Client.Maui"
@@ -393,6 +417,9 @@ jobs:
             "Skopka.Chat.UI.Maui"
             "Skopka.Chat.Server"
             "Skopka.Chat.Server.NSec"
+            "Skopka.Chat.Bots"
+            "Skopka.Chat.Bots.Sqlite"
+            "Skopka.Chat.Bots.AspNetCore"
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Persistence.PostgreSql"
@@ -406,8 +433,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${RELEASE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 19 || "$SNUPKG_COUNT" -ne 19 ]]; then
-            echo "Expected 19 packages and 19 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 23 || "$SNUPKG_COUNT" -ne 23 ]]; then
+            echo "Expected 23 packages and 23 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
@@ -459,6 +486,7 @@ jobs:
             "skopka.chat.attachments.postgresql"
             "skopka.chat.attachments.s3"
             "skopka.chat.client"
+            "skopka.chat.client.browser"
             "skopka.chat.client.storage"
             "skopka.chat.client.storage.sqlite"
             "skopka.chat.client.maui"
@@ -471,6 +499,9 @@ jobs:
             "skopka.chat.client.http"
             "skopka.chat.server"
             "skopka.chat.server.nsec"
+            "skopka.chat.bots"
+            "skopka.chat.bots.sqlite"
+            "skopka.chat.bots.aspnetcore"
             "skopka.chat.server.aspnetcore"
             "skopka.chat.persistence.postgresql"
           )
@@ -511,8 +542,12 @@ jobs:
             "Skopka.Chat.UI.Maui"
             "Skopka.Chat.Server"
             "Skopka.Chat.Server.NSec"
+            "Skopka.Chat.Bots"
+            "Skopka.Chat.Bots.Sqlite"
+            "Skopka.Chat.Bots.AspNetCore"
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
+            "Skopka.Chat.Client.Browser"
             "Skopka.Chat.Persistence.PostgreSql"
             "Skopka.Chat.Server.AspNetCore"
           )
@@ -537,6 +572,7 @@ jobs:
             "skopka.chat.attachments.postgresql"
             "skopka.chat.attachments.s3"
             "skopka.chat.client"
+            "skopka.chat.client.browser"
             "skopka.chat.client.storage"
             "skopka.chat.client.storage.sqlite"
             "skopka.chat.client.maui"
@@ -549,6 +585,9 @@ jobs:
             "skopka.chat.client.http"
             "skopka.chat.server"
             "skopka.chat.server.nsec"
+            "skopka.chat.bots"
+            "skopka.chat.bots.sqlite"
+            "skopka.chat.bots.aspnetcore"
             "skopka.chat.server.aspnetcore"
             "skopka.chat.persistence.postgresql"
           )

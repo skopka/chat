@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Skopka.Chat.Bots.AspNetCore\Skopka.Chat.Bots.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Bots.Sqlite\Skopka.Chat.Bots.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Client.Http\Skopka.Chat.Client.Http.csproj" />
+    <ProjectReference Include="..\..\src\Skopka.Chat.Client.Storage.Sqlite\Skopka.Chat.Client.Storage.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

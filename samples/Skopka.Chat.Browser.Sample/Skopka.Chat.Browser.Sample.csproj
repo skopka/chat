@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <StaticWebAssetProjectMode>Default</StaticWebAssetProjectMode>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseChatPackages)' != 'true'">
+    <ProjectReference Include="../../src/Skopka.Chat.Client.Browser/Skopka.Chat.Client.Browser.csproj" />
+    <ProjectReference Include="../../src/Skopka.Chat.UI.Blazor/Skopka.Chat.UI.Blazor.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseChatPackages)' == 'true'">
+    <PackageReference Include="Skopka.Chat.Client.Browser" VersionOverride="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.UI.Blazor" VersionOverride="$(ChatPackageVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

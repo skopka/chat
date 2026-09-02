@@ -35,6 +35,7 @@ fuzz_assembly="$binary_directory/Skopka.Chat.FuzzTests.dll"
 protocol_assembly="$binary_directory/Skopka.Chat.Protocol.dll"
 transport_assembly="$binary_directory/Skopka.Chat.Transport.Http.dll"
 client_assembly="$binary_directory/Skopka.Chat.Client.dll"
+bot_assembly="$binary_directory/Skopka.Chat.Bots.AspNetCore.dll"
 
 dotnet "$fuzz_assembly" --replay "$corpus_directory"
 dotnet tool restore
@@ -42,6 +43,7 @@ dotnet tool restore
 dotnet tool run sharpfuzz -- "$protocol_assembly"
 dotnet tool run sharpfuzz -- "$transport_assembly"
 dotnet tool run sharpfuzz -- "$client_assembly"
+dotnet tool run sharpfuzz -- "$bot_assembly"
 
 export AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
 export AFL_NO_AFFINITY=1

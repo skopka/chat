@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><IsPackable>false</IsPackable><GenerateDocumentationFile>false</GenerateDocumentationFile></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Skopka.Chat.Client/Skopka.Chat.Client.csproj" />
+    <ProjectReference Include="../../src/Skopka.Chat.Transport.Http/Skopka.Chat.Transport.Http.csproj" />
+    <Compile Include="../BrowserInteropContracts.cs" Link="BrowserInteropContracts.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.Bots</PackageId>
+    <Description>Owner-hosted end-to-end encrypted text bot runtime and explicit consent boundaries.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Client\Skopka.Chat.Client.csproj" />
+  </ItemGroup>
+</Project>

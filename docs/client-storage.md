@@ -2,6 +2,13 @@
 
 `Skopka.Chat.Client.Storage` closes both receive/acknowledgement and partial multi-device-send gaps for typed content. It defines a durable verified-event journal, bounded history paging, an idempotent projection applier, an exact-envelope outbox and `ChatSyncCoordinator`. `Skopka.Chat.Client.Storage.Sqlite` is the optional local SQLite implementation.
 
+The `Skopka.Chat.Client.Browser` adapter introduced in 0.15.0 supplies encrypted IndexedDB
+history/outbox and pre-network jobs under an explicitly unlocked account vault.
+It reuses these contracts and coordinators; it does not use SQLite in WASM. See
+[browser integration](browser.md) for separate-passphrase protection, paging,
+cross-tab leases and recovery. The SQLite plaintext-storage limitations below
+still apply to SQLite, not to the browser vault's encrypted records.
+
 ## Safe receive order
 
 For each polled envelope the coordinator performs exactly this order:

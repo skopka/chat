@@ -1,11 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
+    <TargetFramework />
+    <TargetFrameworks>net10.0;net10.0-browser</TargetFrameworks>
     <PackageId>Skopka.Chat.UI.Blazor</PackageId>
     <Description>Accessible, themeable and replaceable Blazor components for Skopka.Chat.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" />
     <ProjectReference Include="..\Skopka.Chat.UI.Core\Skopka.Chat.UI.Core.csproj" />
   </ItemGroup>
 

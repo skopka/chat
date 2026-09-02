@@ -89,11 +89,26 @@ public interface IDeviceIdentityMetadataStore
 }
 
 /// <summary>Persistent device lifecycle. Logout does not call ForgetLocalAsync.</summary>
-public sealed class PersistentDeviceIdentityService(IDeviceKeyStore keys, IDeviceIdentityMetadataStore metadata, TimeProvider timeProvider)
+public sealed class PersistentDeviceIdentityService
 {
-    private readonly IDeviceKeyStore _keys = keys ?? throw new ArgumentNullException(nameof(keys));
-    private readonly IDeviceIdentityMetadataStore _metadata = metadata ?? throw new ArgumentNullException(nameof(metadata));
-    private readonly TimeProvider _time = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+    private readonly IDeviceKeyStore _keys;
+    private readonly IDeviceIdentityMetadataStore _metadata;
+    private readonly TimeProvider _time;
+    private readonly DeviceIdentityService _identity;
+
+    /// <summary>Uses the default native provider.</summary>
+    public PersistentDeviceIdentityService(IDeviceKeyStore keys, IDeviceIdentityMetadataStore metadata, TimeProvider timeProvider)
+        : this(keys, metadata, timeProvider, ChatCryptographyDefaults.Create()) { }
+
+    /// <summary>Uses the selected endpoint cryptography with the same create-only lifecycle.</summary>
+    public PersistentDeviceIdentityService(IDeviceKeyStore keys, IDeviceIdentityMetadataStore metadata, TimeProvider timeProvider,
+        IChatCryptographyProvider cryptography)
+    {
+        _keys = keys ?? throw new ArgumentNullException(nameof(keys));
+        _metadata = metadata ?? throw new ArgumentNullException(nameof(metadata));
+        _time = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _identity = new DeviceIdentityService(keys, cryptography);
+    }
 
     /// <summary>Loads and validates both keys; finalizes a reservation only if its exact keys survived the crash.</summary>
     public async ValueTask<PersistentDeviceIdentityResult> LoadAsync(DeviceIdentityScope scope, CancellationToken cancellationToken = default)
@@ -126,7 +141,7 @@ public sealed class PersistentDeviceIdentityService(IDeviceKeyStore keys, IDevic
             var reserved = new DeviceIdentityMetadata(1, scope, DeviceId.New(), KeyId.New(),
                 DeviceBindingEncoding.NormalizeTime(_time.GetUtcNow()), null, false, false);
             await lease.WriteAsync(reserved, cancellationToken).ConfigureAwait(false);
-            var device = await new DeviceIdentityService(_keys).CreateAsync(scope.UserId, reserved.DeviceId, reserved.KeyId,
+            var device = await _identity.CreateAsync(scope.UserId, reserved.DeviceId, reserved.KeyId,
                 reserved.CreatedAt, cancellationToken).ConfigureAwait(false);
             var ready = reserved with { PublicDevice = device };
             await lease.WriteAsync(ready, cancellationToken).ConfigureAwait(false);
@@ -147,7 +162,7 @@ public sealed class PersistentDeviceIdentityService(IDeviceKeyStore keys, IDevic
         await using var lease = await _metadata.AcquireAsync(scope, cancellationToken).ConfigureAwait(false);
         var existing = await LoadAsync(scope, lease, cancellationToken).ConfigureAwait(false);
         if (existing.State != PersistentDeviceIdentityState.Absent) { return existing; }
-        var loaded = await new DeviceIdentityService(_keys).LoadPublicAsync(scope.UserId, legacyDevice.DeviceId,
+        var loaded = await _identity.LoadPublicAsync(scope.UserId, legacyDevice.DeviceId,
             legacyDevice.RegisteredAt, cancellationToken).ConfigureAwait(false);
         if (loaded is null) { return new(PersistentDeviceIdentityState.RecoveryRequired, null); }
         if (!DeviceBindingEncoding.SameKeys(loaded, legacyDevice)) { return new(PersistentDeviceIdentityState.Corrupt, null); }
@@ -174,7 +189,7 @@ public sealed class PersistentDeviceIdentityService(IDeviceKeyStore keys, IDevic
                   DeviceBindingEncoding.SameKeys(reserved, legacyDevice))) { return existing; }
             var material = await legacyKeys.LoadAsync(legacyDevice.DeviceId, cancellationToken).ConfigureAwait(false);
             if (material is null) { return new(PersistentDeviceIdentityState.RecoveryRequired, existing.Metadata); }
-            var loaded = DeviceIdentityService.DerivePublic(material, scope.UserId, legacyDevice.DeviceId, legacyDevice.RegisteredAt);
+            var loaded = _identity.DerivePublic(material, scope.UserId, legacyDevice.DeviceId, legacyDevice.RegisteredAt);
             if (!DeviceBindingEncoding.SameKeys(loaded, legacyDevice)) { return new(PersistentDeviceIdentityState.Corrupt, existing.Metadata); }
             // Persist intent first: an interrupted import can only resume with these exact retained keys.
             var intent = new DeviceIdentityMetadata(1, scope, loaded.DeviceId, loaded.KeyId, loaded.RegisteredAt, loaded, true, false);
@@ -228,7 +243,7 @@ public sealed class PersistentDeviceIdentityService(IDeviceKeyStore keys, IDevic
             return new(PersistentDeviceIdentityState.Corrupt, null);
         }
         if (record.Revoked) { return new(PersistentDeviceIdentityState.Revoked, record); }
-        var device = await new DeviceIdentityService(_keys).LoadPublicAsync(scope.UserId, record.DeviceId,
+        var device = await _identity.LoadPublicAsync(scope.UserId, record.DeviceId,
             record.PublicDevice?.RegisteredAt ?? record.CreatedAt, cancellationToken).ConfigureAwait(false);
         if (device is null) { return new(PersistentDeviceIdentityState.RecoveryRequired, record); }
         if (device.KeyId != record.KeyId || (record.PublicDevice is not null && !DeviceBindingEncoding.SameKeys(device, record.PublicDevice)))

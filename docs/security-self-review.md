@@ -1,5 +1,34 @@
 # Security-boundary self-review
 
+## Browser integration review (0.15.0)
+
+Shared canonical/signature/AEAD and binding code now accepts an explicit primitive
+provider. Native NSec constructors and legacy key records remain supported; portable
+v1 keys require explicit native conversion. Browser assets contain no native NSec
+or server framework dependency. Real published Chromium/Firefox tests exercise
+native cross-decryption/signatures, encrypted IndexedDB, concurrent identity,
+reload/outbox retries, quota-before-ACK, corruption/loss/revocation and the cookie
+CSRF sample. This is regression coverage, not an independent audit or proof of
+browser/OS power-loss durability. Strong local phrase policy, same-origin code
+integrity, XSS prevention, host session coordination, retention/recovery and the
+production BFF remain prerequisites. See [browser integration](browser.md).
+
+## Bot integration review (0.15.0)
+
+Bots run as separate client endpoints; no server/private-key dependency was added.
+Review/tests cover authenticated decrypt before durable inbox/ack, logical and
+delivery-ID conflicts, independent writers, restart, grant changes, suppression,
+exact send retries, private HTTP bot scope/strict bounds and create-only protected
+identity. A crash-reservation regression pins null public-key metadata separately
+from empty invalid key arrays. Source-generated metadata mode preserves that JSON
+distinction. This is an internal regression gate, not an independent audit.
+
+Production prerequisites remain: host-authenticated operator registry, human
+consent UI/persistence, server-side bot admission, protected Data Protection key
+ring/certificate, private gateway ingress, quotas/monitoring and deployment
+power-loss/recovery checks. Neither client consent nor a separate process hides
+plaintext from the bot operator. See [bots](bots.md).
+
 Date: 2026-09-02
 Scope: package boundaries and protocol-v1 vertical slice. This is not an independent audit.
 
