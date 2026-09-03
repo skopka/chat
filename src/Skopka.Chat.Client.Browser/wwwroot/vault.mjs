@@ -79,6 +79,27 @@ async function derive(passphrase, salt) {
     try { return await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']); }
     finally { sodium.memzero(raw); }
 }
+function isDeviceKey(value) {
+    const key = value?.key;
+    return value?.version === 1 && key instanceof CryptoKey && key.type === 'secret' && key.extractable === false
+        && key.algorithm?.name === 'AES-GCM' && key.algorithm?.length === 256
+        && key.usages.length === 2 && key.usages.includes('encrypt') && key.usages.includes('decrypt');
+}
+async function verifyVaultKey(key, scope, installationId, existing) {
+    if (!existing || ![1, 2].includes(existing.version)) throw new VaultFault('corrupt');
+    const check = { scope, kind: 'vault', key: 'check', partition: installationId, revision: '1' };
+    let plaintext;
+    try { plaintext = await unseal(key, { ...check, nonce: existing.nonce, ciphertext: existing.ciphertext }); }
+    catch { throw new VaultFault('unlock-failed'); }
+    await sodium.ready;
+    try { if (!sodium.memcmp(plaintext, encoder.encode('Skopka.Chat.Browser.Vault.v1'))) throw new VaultFault('corrupt'); }
+    finally { sodium.memzero(plaintext); }
+}
+function openHandle(scope, key) {
+    const handle = crypto.randomUUID();
+    handles.set(handle, { scope, key });
+    return { status: 'ok', value: handle };
+}
 
 // Non-secret random origin installation ID. No identity creation during load.
 export async function installation(create) {
@@ -115,25 +136,106 @@ export async function unlock(scope, installationId, passphrase, create) {
         if (!existing && !create) return { status: 'absent' };
         if (existing && create) return { status: 'exists' };
         const salt = existing?.salt ?? crypto.getRandomValues(new Uint8Array(16));
-        if (existing && existing.version !== 1) throw new VaultFault('corrupt');
+        if (existing && existing.version !== 1) throw new VaultFault('recovery');
         const key = await derive(passphrase, salt);
         const check = { scope, kind: 'vault', key: 'check', partition: installationId, revision: '1' };
         if (existing) {
-            let plaintext;
-            try { plaintext = await unseal(key, { ...check, nonce: existing.nonce, ciphertext: existing.ciphertext }); }
-            catch { return { status: 'unlock-failed' }; }
-            try { if (!sodium.memcmp(plaintext, encoder.encode('Skopka.Chat.Browser.Vault.v1'))) throw new VaultFault('corrupt'); }
-            finally { sodium.memzero(plaintext); }
+            try { await verifyVaultKey(key, scope, installationId, existing); }
+            catch (error) { if (error instanceof VaultFault && error.status === 'unlock-failed') return { status: 'unlock-failed' }; throw error; }
         } else {
             const sealed = await seal(key, check, encoder.encode('Skopka.Chat.Browser.Vault.v1'));
             await transaction('configuration', 'readwrite', tx => request(tx.objectStore('configuration').add(
                 { version: 1, salt, nonce: sealed.nonce, ciphertext: sealed.ciphertext }, scope)));
         }
-        const handle = crypto.randomUUID();
-        handles.set(handle, { scope, key });
-        return { status: 'ok', value: handle };
+        return openHandle(scope, key);
     } catch (error) { return failure(error); }
     finally { if (passphrase instanceof Uint8Array) passphrase.fill(0); }
+}
+
+// The non-extractable WebCrypto key stays in the browser profile and never crosses JS interop or the network.
+export async function trusted(scope, installationId, create) {
+    try {
+        if (!/^[0-9a-f]{64}$/.test(scope)) throw new VaultFault('corrupt');
+        const root = await installation(false);
+        if (root.status !== 'ok' || root.value !== installationId) throw new VaultFault('recovery');
+        let existing = await transaction('configuration', 'readonly', tx => request(tx.objectStore('configuration').get(scope)));
+        let stored = await transaction('configuration', 'readonly', tx => request(tx.objectStore('configuration').get(`trusted:${scope}`)));
+        if (!existing) {
+            const count = await transaction('records', 'readonly', tx => request(tx.objectStore('records').index('ordered')
+                .count(IDBKeyRange.bound([scope], [scope, []]))));
+            if (count) throw new VaultFault('recovery');
+            if (!create) return { status: 'absent' };
+            const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+            const check = { scope, kind: 'vault', key: 'check', partition: installationId, revision: '1' };
+            const sealed = await seal(key, check, encoder.encode('Skopka.Chat.Browser.Vault.v1'));
+            const created = { version: 2, nonce: sealed.nonce, ciphertext: sealed.ciphertext };
+            const result = await transaction('configuration', 'readwrite', async tx => {
+                const store = tx.objectStore('configuration');
+                if (await request(store.get(scope))) return false;
+                await request(store.add(created, scope));
+                await request(store.add({ version: 1, key }, `trusted:${scope}`));
+                return true;
+            });
+            if (!result) return trusted(scope, installationId, false);
+            existing = created;
+            stored = { version: 1, key };
+        }
+        if (![1, 2].includes(existing.version)) throw new VaultFault('corrupt');
+        if (!stored) throw new VaultFault(existing.version === 1 ? 'phrase-required' : 'recovery');
+        if (!isDeviceKey(stored)) throw new VaultFault('corrupt');
+        await verifyVaultKey(stored.key, scope, installationId, existing);
+        return openHandle(scope, stored.key);
+    } catch (error) { return failure(error); }
+}
+
+// One-time migration after a legacy phrase unlock. Vault ciphertext and identity remain unchanged.
+export async function remember(handle, installationId) {
+    try {
+        const value = getHandle(handle);
+        const root = await installation(false);
+        if (root.status !== 'ok' || root.value !== installationId) throw new VaultFault('recovery');
+        const existing = await transaction('configuration', 'readonly', tx => request(tx.objectStore('configuration').get(value.scope)));
+        await verifyVaultKey(value.key, value.scope, installationId, existing);
+        await transaction('configuration', 'readwrite', tx => request(tx.objectStore('configuration')
+            .put({ version: 1, key: value.key }, `trusted:${value.scope}`)));
+        return { status: 'ok' };
+    } catch (error) { return failure(error); }
+}
+
+// Explicitly destructive migration for hosts that have declared every legacy local record disposable.
+export async function discardLegacy(scope, installationId) {
+    try {
+        if (!/^[0-9a-f]{64}$/.test(scope)) throw new VaultFault('corrupt');
+        const root = await installation(false);
+        if (root.status !== 'ok' || root.value !== installationId) throw new VaultFault('recovery');
+        return await transaction(['configuration', 'records'], 'readwrite', async tx => {
+            const configuration = tx.objectStore('configuration');
+            const existing = await request(configuration.get(scope));
+            if (!existing) {
+                const count = await request(tx.objectStore('records').index('ordered')
+                    .count(IDBKeyRange.bound([scope], [scope, []])));
+                if (count) throw new VaultFault('recovery');
+                return { status: 'ok' };
+            }
+            if (existing.version !== 1) throw new VaultFault('exists');
+            if (await request(configuration.get(`trusted:${scope}`))) throw new VaultFault('exists');
+            const records = tx.objectStore('records').index('ordered');
+            await new Promise((resolve, reject) => {
+                const cursor = records.openCursor(IDBKeyRange.bound([scope], [scope, []]));
+                cursor.onerror = () => reject(platformFault(cursor.error));
+                cursor.onsuccess = () => {
+                    const row = cursor.result;
+                    if (!row) { resolve(); return; }
+                    const removal = row.delete();
+                    removal.onerror = () => reject(platformFault(removal.error));
+                    removal.onsuccess = () => row.continue();
+                };
+            });
+            await request(configuration.delete(scope));
+            await request(configuration.delete(`trusted:${scope}`));
+            return { status: 'ok' };
+        });
+    } catch (error) { return failure(error); }
 }
 export async function lock(handle, name) {
     try {

@@ -34,6 +34,7 @@ public sealed class BrowserTests(IJSRuntime js, Uri origin)
                 "identity" => await IdentityAsync(crypto),
                 "storage" => await StorageAsync(crypto),
                 "backup" => await BackupAsync(crypto),
+                "trusted-vault" => await TrustedVaultAsync(crypto),
                 "event-race" => await ConcurrentEventAsync(crypto),
                 "partial" => await PartialAsync(crypto, false),
                 "retry" => await PartialAsync(crypto, true),
@@ -188,6 +189,56 @@ public sealed class BrowserTests(IJSRuntime js, Uri origin)
     {
         await using var vault = await OpenAsync("browser-tests", true);
         return "ok:" + vault.Scope.StoragePartition;
+    }
+
+    private async Task<string> TrustedVaultAsync(BrowserChatCryptography crypto)
+    {
+        var installation = await BrowserVault.GetInstallationIdAsync(js, create: true);
+        var trustedScope = new DeviceIdentityScope("trusted-browser-tests", User, installation!.Value);
+        DeviceId deviceId;
+        _phase = "trusted-create";
+        await using (var created = await BrowserVault.OpenTrustedAsync(js, trustedScope, create: true))
+        {
+            var store = new BrowserDeviceIdentityStore(created);
+            var identity = await new PersistentDeviceIdentityService(store, store, Clock, crypto).CreateAsync(created.Scope);
+            Check(identity.State == PersistentDeviceIdentityState.Ready);
+            deviceId = identity.Metadata!.DeviceId;
+        }
+        _phase = "trusted-reopen";
+        await using (var reopened = await BrowserVault.OpenTrustedAsync(js, trustedScope))
+        {
+            var store = new BrowserDeviceIdentityStore(reopened);
+            var identity = await new PersistentDeviceIdentityService(store, store, Clock, crypto).LoadAsync(reopened.Scope);
+            Check(identity.State == PersistentDeviceIdentityState.Ready && identity.Metadata!.DeviceId == deviceId);
+        }
+
+        var legacyScope = new DeviceIdentityScope("legacy-browser-tests", User, installation.Value);
+        var phrase = Encoding.UTF8.GetBytes("synthetic legacy migration phrase");
+        await using (var legacy = await BrowserVault.OpenAsync(js, legacyScope, phrase, create: true))
+        {
+            var store = new BrowserDeviceIdentityStore(legacy);
+            Check((await new PersistentDeviceIdentityService(store, store, Clock, crypto).CreateAsync(legacy.Scope)).State == PersistentDeviceIdentityState.Ready);
+            try
+            {
+                await using var unavailable = await BrowserVault.OpenTrustedAsync(js, legacyScope);
+                throw new InvalidOperationException("Legacy phrase vault opened without migration.");
+            }
+            catch (BrowserStorageException error) { Check(error.Code == "phrase-required"); }
+        }
+        _phase = "trusted-discard-legacy";
+        await BrowserVault.DiscardLegacyAsync(js, legacyScope);
+        await using (var replacement = await BrowserVault.OpenTrustedAsync(js, legacyScope, create: true))
+        {
+            var store = new BrowserDeviceIdentityStore(replacement);
+            Check((await new PersistentDeviceIdentityService(store, store, Clock, crypto).LoadAsync(replacement.Scope)).State == PersistentDeviceIdentityState.Absent);
+        }
+
+        var rememberedScope = new DeviceIdentityScope("remembered-browser-tests", User, installation.Value);
+        await using (var legacy = await BrowserVault.OpenAsync(js, rememberedScope, phrase, create: true))
+        { _phase = "trusted-remember"; await legacy.RememberForDeviceAsync(); }
+        _phase = "trusted-remembered-reopen";
+        await using var migrated = await BrowserVault.OpenTrustedAsync(js, rememberedScope);
+        return "ok";
     }
     private async Task<string> IdentityAsync(BrowserChatCryptography crypto)
     {

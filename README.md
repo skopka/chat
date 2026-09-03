@@ -6,6 +6,15 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 ## Пакеты
 
+Версия `0.17.0` добавляет browser-bound открытие локального vault без ежедневной
+фразы. Новый браузер создаёт неэкспортируемый WebCrypto-ключ в IndexedDB, а
+существующий vault `0.16` можно один раз открыть прежней фразой и привязать без
+перешифрования записей или замены DeviceId. Ключ не отправляется на сервер.
+Для явно одноразовых установок `DiscardLegacyAsync` позволяет хосту после
+информированного подтверждения удалить только legacy-scope и создать новый vault.
+Защита рассчитана на кражу экспортированных ciphertext, но не на вредоносный код
+того же origin или доступ к разблокированному профилю браузера.
+
 Версия `0.16.0` добавляет opt-in E2EE backup текстовой истории,
 восстановление без старого устройства, отдельный случайный recovery key, Browser/MAUI
 адаптеры и account-scoped PostgreSQL/HTTP. Device identity и outbox не переносятся;
@@ -24,7 +33,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.Attachments.PostgreSql` — отдельный `AttachmentDbContext`, migration и ограниченное `bytea`-хранилище для небольших зашифрованных файлов.
 - `Skopka.Chat.Attachments.S3` — потоковое S3-compatible хранилище с conditional create, проверкой длины/SHA-256 и без перезаписи объекта.
 - `Skopka.Chat.Client` — общий движок для native/browser: идентичность, `IDeviceKeyStore`, платформенная граница криптографии (по умолчанию NSec на native), typed content, fan-out, файлы, проекции, fingerprints и `IChatTransport`.
-- `Skopka.Chat.Client.Browser` — browser-only криптография и защищённое локальное хранение, постоянная identity, durable очередь и same-origin cookie/CSRF адаптеры. Требуется отдельная локальная фраза разблокировки, не пароль аккаунта.
+- `Skopka.Chat.Client.Browser` — browser-only криптография и защищённое локальное хранение, постоянная identity, durable очередь и same-origin cookie/CSRF адаптеры. Поддерживает browser-bound неэкспортируемый ключ; прежняя отдельная фраза нужна только один раз для миграции vault `0.16`.
 - `Skopka.Chat.Client.Storage` — durable journal contracts, восстановление проекций и `ChatSyncCoordinator` с порядком verify/decrypt → store → apply → acknowledge.
 - `Skopka.Chat.Client.Storage.Sqlite` — локальный SQLite-журнал проверенных typed events с атомарной дедупликацией `MessageId`; хранит plaintext и требует host-защиты файла БД.
 - `Skopka.Chat.Bots` — клиентский runtime текстовых ботов с проверкой host-owned согласия и раскрытия оператора.

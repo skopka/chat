@@ -8,7 +8,7 @@ namespace Skopka.Chat.Client.Browser;
 public sealed class BrowserStorageException : DeviceIdentityStorageException
 {
     internal BrowserStorageException(string code) : base(code is "corrupt" ? PersistentDeviceIdentityState.Corrupt :
-        code is "recovery" or "unlock-failed" ? PersistentDeviceIdentityState.RecoveryRequired : PersistentDeviceIdentityState.Unavailable)
+        code is "recovery" or "unlock-failed" or "phrase-required" ? PersistentDeviceIdentityState.RecoveryRequired : PersistentDeviceIdentityState.Unavailable)
         => Code = code;
     /// <summary>Bounded local error code; unlock failure may mean a wrong phrase or damaged ciphertext.</summary>
     public string Code { get; }
@@ -53,6 +53,49 @@ public sealed class BrowserVault : IAsyncDisposable
         }
         catch { await module.DisposeAsync().ConfigureAwait(false); throw; }
         finally { CryptographicOperations.ZeroMemory(copy); }
+    }
+
+    /// <summary>Opens a vault with its browser-bound non-exportable key, or creates one without a phrase.</summary>
+    /// <remarks>
+    /// The key remains scoped to the browser profile and origin. This protects exported IndexedDB ciphertext,
+    /// but not an unlocked browser profile or compromised same-origin application code.
+    /// Legacy phrase vaults return <c>phrase-required</c> until <see cref="RememberForDeviceAsync"/> is called.
+    /// </remarks>
+    public static async ValueTask<BrowserVault> OpenTrustedAsync(IJSRuntime runtime, DeviceIdentityScope scope,
+        bool create = false, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        var module = await ImportAsync(runtime, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var result = await InvokeAsync(module, "trusted", scope.StoragePartition,
+                scope.InstallationId.ToString("D"), create).ConfigureAwait(false);
+            RequireSuccess(result);
+            return new BrowserVault(module, result.Value ?? throw new BrowserStorageException("corrupt"), scope);
+        }
+        catch { await module.DisposeAsync().ConfigureAwait(false); throw; }
+    }
+
+    /// <summary>Persists this unlocked vault's key as a non-exportable key in the current browser profile.</summary>
+    /// <remarks>This is a one-time opt-in migration for a legacy phrase-protected vault; no record is re-encrypted.</remarks>
+    public async ValueTask RememberForDeviceAsync(CancellationToken cancellationToken = default)
+    {
+        Check(cancellationToken);
+        RequireSuccess(await CallAsync("remember", Scope.InstallationId.ToString("D")).ConfigureAwait(false));
+    }
+
+    /// <summary>Permanently deletes every record in one legacy phrase vault so it can be replaced.</summary>
+    /// <remarks>
+    /// This operation is intentionally explicit and irreversible. It rejects an already browser-bound vault and
+    /// does not unregister the old public device from a server. The host must obtain informed authorization.
+    /// </remarks>
+    public static async ValueTask DiscardLegacyAsync(IJSRuntime runtime, DeviceIdentityScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        await using var module = await ImportAsync(runtime, cancellationToken).ConfigureAwait(false);
+        RequireSuccess(await InvokeAsync(module, "discardLegacy", scope.StoragePartition,
+            scope.InstallationId.ToString("D")).ConfigureAwait(false));
     }
 
     /// <summary>Cooperative cross-tab lease. Tab termination releases it; acquisition is bounded to ten seconds.</summary>
@@ -142,7 +185,7 @@ public sealed class BrowserVault : IAsyncDisposable
         {
             throw new BrowserStorageException(result.Status switch
             {
-                "absent" or "exists" or "locked" or "unlock-failed" or "corrupt" or "recovery" or "conflict" or "quota" => result.Status,
+                "absent" or "exists" or "locked" or "unlock-failed" or "phrase-required" or "corrupt" or "recovery" or "conflict" or "quota" => result.Status,
                 _ => "unavailable"
             });
         }

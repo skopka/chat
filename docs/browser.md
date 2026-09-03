@@ -1,5 +1,25 @@
 # Browser E2EE integration
 
+## Browser-bound trusted vault (0.17.0)
+
+`BrowserVault.OpenTrustedAsync` creates or reopens a vault with a non-extractable
+AES-GCM `CryptoKey` persisted by IndexedDB. The key does not cross JS interop and
+does not go to the server. A 0.16 phrase vault deliberately returns
+`phrase-required`; open it once with `OpenAsync`, call
+`RememberForDeviceAsync`, dispose it, then future logins can use
+`OpenTrustedAsync`. Existing encrypted rows and the device identity are not
+rewritten.
+
+If the application owner has explicitly declared all 0.16 browser data
+disposable, `BrowserVault.DiscardLegacyAsync` irreversibly removes only that
+account/service/installation scope. It rejects an already trusted v2 vault. The
+host must separately account for the obsolete public server device/session.
+
+This mode matches normal messenger ergonomics but changes the local threat
+boundary: possession of an unlocked browser profile or same-origin code execution
+can use the key. It only protects copied IndexedDB ciphertext. Account context,
+logout cancellation and device revocation remain host responsibilities.
+
 The 0.16.0 opt-in [encrypted history backup](backups.md) adds `BrowserBackupKeyStore`
 and `BrowserBackupWorkspace` inside the existing encrypted vault. Use the existing
 browser primitive provider and cookie/BFF authorizer; no crypto or recovery code

@@ -30,6 +30,7 @@ for (const engine of [chromium, firefox]) {
         if (ids[0] !== ids[1]) throw new Error('Cross-tab identity mismatch');
         await run('storage');
         await run('backup');
+        await run('trusted-vault');
         const eventResults = await Promise.all([run('event-race'), run('event-race', second)]);
         if (eventResults.sort().join(',') !== 'ok:Duplicate,ok:Stored') throw new Error('Independent event writers were not atomic');
         await run('partial');
