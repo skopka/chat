@@ -22,11 +22,18 @@ if (args[0] == "generate")
         new DeviceAuthorizationContext("browser.test", bob.UserId, "synthetic-session", time.AddHours(1)), bob, Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
         Enumerable.Range(0, 32).Select(i => (byte)i).ToArray(), time, time.AddMinutes(2));
     var canonical = DeviceBindingEncoding.Encode(binding);
+    using var recovery = ChatBackupRecoveryKey.Create();
+    var archive = new ChatBackupArchive(new("interop-backup", bob.UserId), Guid.NewGuid(), Guid.NewGuid());
+    var backupCrypto = new ChatBackupCryptography();
+    var backupPart = backupCrypto.Encrypt(recovery, archive, Guid.NewGuid(), 0, new byte[32], ChatBackupEventEncoding.Encode(new ReceivedChatContent(
+        envelope.MessageId, envelope.ConversationId, alice.UserId, alice.DeviceId, time, content)));
+    var backupBytes = ChatBackupEncoding.EncodePart(backupPart);
+    var backupSeal = backupCrypto.Seal(recovery, archive, backupPart.UploadId, null, 1, backupBytes.Length, SHA256.HashData(backupBytes), time);
     var fixture = new InteropFixture(PublicDeviceResponse.FromDomain(alice), PublicDeviceResponse.FromDomain(bob),
         ConvertKey(aliceKeys.ExportEncryptionPrivateKey(), ChatKeyAlgorithm.X25519), ConvertKey(aliceKeys.ExportSigningPrivateKey(), ChatKeyAlgorithm.Ed25519),
         ConvertKey(bobKeys.ExportEncryptionPrivateKey(), ChatKeyAlgorithm.X25519), ConvertKey(bobKeys.ExportSigningPrivateKey(), ChatKeyAlgorithm.Ed25519),
         EncryptedEnvelopeDto.FromDomain(envelope), CanonicalEnvelopeEncoding.EncodeEnvelope(envelope), canonical,
-        new NSecChatCryptography().Sign(bobKeys.ExportSigningPrivateKey(), canonical));
+        new NSecChatCryptography().Sign(bobKeys.ExportSigningPrivateKey(), canonical), recovery.ExportBytes(), ChatBackupEncoding.EncodeArchive(archive), backupBytes, ChatBackupEncoding.EncodeVersion(backupSeal));
     Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(fixturePath))!);
     await File.WriteAllBytesAsync(fixturePath, JsonSerializer.SerializeToUtf8Bytes(fixture, InteropJson.Default.InteropFixture));
     Console.WriteLine("Synthetic native interoperability vectors generated.");
@@ -39,6 +46,11 @@ else if (args[0] == "verify" && args.Length >= 3)
     var alice = fixture.Alice.ToDomain();
     await keys.TryCreateAsync(new DeviceKeyMaterial(alice.UserId, alice.DeviceId, alice.KeyId, fixture.AliceEncryption, fixture.AliceSigning));
     var decoded = await new ChatCryptoService(keys).DecryptContentAsync(result.Envelope.ToDomain(), fixture.Bob.ToDomain());
+    using var recovery = ChatBackupRecoveryKey.FromBytes(fixture.BackupKey);
+    var archive = ChatBackupEncoding.DecodeArchive(fixture.BackupArchive); var backupCrypto = new ChatBackupCryptography();
+    backupCrypto.Verify(recovery, archive, ChatBackupEncoding.DecodeVersion(result.BackupSeal));
+    var restored = ChatBackupEventEncoding.Decode(backupCrypto.Decrypt(recovery, archive, ChatBackupEncoding.DecodePart(result.BackupPart)));
+    if (restored.Content is not ChatTextContent backupText || backupText.Text != "synthetic native/browser interop — 🔐") { throw new InvalidOperationException("Backup interoperability failed."); }
     if (decoded is not ChatTextContent text || text.Text != "synthetic browser/native interop — 🔐" ||
         !new NSecChatCryptography().Verify(fixture.Bob.SigningPublicKey, fixture.BindingCanonical, result.BindingSignature) ||
         !fixture.BindingSignature.AsSpan().SequenceEqual(result.BindingSignature))

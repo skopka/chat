@@ -1,6 +1,10 @@
 @implements IDisposable
 
 <section @attributes="AdditionalAttributes" class="@RootClass" style="@Style" aria-busy="@ViewModel.IsSendingDraft">
+    @if (ViewModel.ContainsBackupHistory)
+    {
+        <p class="skopka-chat__backup-warning" role="note">@Strings.BackupTrustWarning</p>
+    }
     <div class="skopka-chat__timeline" role="log" aria-label="@Strings.Timeline" aria-live="polite">
         @if (ViewModel.Timeline.Count == 0)
         {

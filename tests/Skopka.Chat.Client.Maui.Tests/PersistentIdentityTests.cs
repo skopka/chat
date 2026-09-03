@@ -7,6 +7,28 @@ namespace Skopka.Chat.Client.Maui.Tests;
 public sealed class PersistentIdentityTests
 {
     [Fact]
+    public async Task Backup_secret_is_create_only_scoped_and_logout_closes_access_without_changing_device_keys()
+    {
+        using var fixture = new Fixture();
+        var identity = (await fixture.Service().CreateAsync(fixture.Scope)).Metadata!;
+        var before = (await fixture.Keys().LoadAsync(identity.DeviceId))!.ExportSigningPrivateKey();
+        using var recovery = ChatBackupRecoveryKey.Create();
+        using var credential = new Skopka.Chat.Client.Storage.ChatBackupCredential(new(new(fixture.Scope.ServiceId, fixture.Scope.UserId), Guid.NewGuid(), Guid.NewGuid()), recovery.ExportBytes());
+        await using var first = new SecureStorageBackupKeyStore(fixture.Scope, fixture.Storage, fixture.Lock());
+        await using var second = new SecureStorageBackupKeyStore(fixture.Scope, fixture.Storage, fixture.Lock());
+        var results = await Task.WhenAll(first.TryCreateAsync(credential).AsTask(), second.TryCreateAsync(credential).AsTask());
+        Assert.Single(results, value => value);
+        using var retained = (await second.LoadAsync())!; using var retainedKey = retained.OpenKey(); Assert.Equal(recovery.ExportRecoveryCode(), retainedKey.ExportRecoveryCode());
+        Assert.Equal(before, (await fixture.Keys().LoadAsync(identity.DeviceId))!.ExportSigningPrivateKey());
+        await using var foreign = new SecureStorageBackupKeyStore(new(fixture.Scope.ServiceId, UserId.New(), fixture.Scope.InstallationId), fixture.Storage, fixture.Lock());
+        Assert.Null(await foreign.LoadAsync()); await Assert.ThrowsAsync<ChatBackupException>(() => foreign.TryCreateAsync(credential).AsTask());
+        await first.DisposeAsync(); Assert.Equal(ChatBackupFailure.Locked, (await Assert.ThrowsAsync<ChatBackupException>(() => first.LoadAsync().AsTask())).Failure);
+        fixture.Storage.Values[fixture.Storage.Values.Keys.Single(key => key.Contains(".backup.", StringComparison.Ordinal))] = "private-marker-invalid";
+        var error = await Assert.ThrowsAsync<ChatBackupException>(() => second.TryCreateAsync(credential).AsTask());
+        Assert.Equal(ChatBackupFailure.LocalStorage, error.Failure); Assert.DoesNotContain("private-marker", error.ToString());
+    }
+
+    [Fact]
     public async Task Independent_initializers_create_one_identity_and_relogin_retains_both_keys()
     {
         using var fixture = new Fixture();

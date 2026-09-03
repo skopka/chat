@@ -96,11 +96,12 @@
         </DataTemplate>
     </ContentView.Resources>
 
-    <Grid RowDefinitions="*,Auto" SafeAreaEdges="All"
+    <Grid RowDefinitions="Auto,*,Auto" SafeAreaEdges="All"
           BackgroundColor="{AppThemeBinding Light=#FFFFFFFF, Dark=#FF15181D}">
+        <Label Grid.Row="0" Padding="8" Text="{Binding Strings.BackupTrustWarning}" IsVisible="{Binding ContainsBackupHistory}" />
         <CollectionView
             x:Name="Timeline"
-            Grid.Row="0"
+            Grid.Row="1"
             ItemsSource="{Binding Items}"
             ItemsUpdatingScrollMode="KeepScrollOffset"
             SelectionMode="None"
@@ -114,12 +115,12 @@
             </CollectionView.EmptyView>
         </CollectionView>
 
-        <VerticalStackLayout Grid.Row="0" HorizontalOptions="Center" VerticalOptions="Center" IsVisible="{Binding IsLoading}">
+        <VerticalStackLayout Grid.Row="1" HorizontalOptions="Center" VerticalOptions="Center" IsVisible="{Binding IsLoading}">
             <ActivityIndicator IsRunning="{Binding IsLoading}" />
             <Label Text="{Binding Strings.Loading}" />
         </VerticalStackLayout>
 
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid x:Name="DefaultComposer" Padding="8" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto">
                 <Label Grid.Row="0" Grid.ColumnSpan="3" Text="{Binding Strings.CommandFailed}" TextColor="{AppThemeBinding Light=#FFB42318, Dark=#FFFFB4AB}"
                        IsVisible="{Binding HasError}" SemanticProperties.Description="{Binding Strings.CommandFailed}" />

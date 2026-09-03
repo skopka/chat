@@ -3,6 +3,9 @@ namespace Skopka.Chat.UI.Blazor;
 /// <summary>Replaceable user-visible strings for the default Blazor components.</summary>
 public sealed record SkopkaChatStrings
 {
+    /// <summary>Archive provenance and attachment-availability warning; replace/localize without suppressing its meaning.</summary>
+    public string BackupTrustWarning { get; init; } = "Includes restored history protected by your recovery key; original sender signatures were not reverified. Attachment files may be unavailable.";
+
     /// <summary>Default English strings.</summary>
     public static SkopkaChatStrings Default { get; } = new();
 

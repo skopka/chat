@@ -1,5 +1,11 @@
 # Durable client history and synchronization
 
+The 0.16.0 opt-in [history backup](backups.md) coordinator exports canonical
+events, not outbox. Restore has its own staging workspace and durable cursor/active
+pointer; it **never writes to the verified live journal** or calls live-event/ACK
+handlers. Use `ReadRestoredAsync` → `ChatViewModel.ApplyRestored` deliberately, with
+archive provenance. Existing protected live history remains separate and has priority.
+
 `Skopka.Chat.Client.Storage` closes both receive/acknowledgement and partial multi-device-send gaps for typed content. It defines a durable verified-event journal, bounded history paging, an idempotent projection applier, an exact-envelope outbox and `ChatSyncCoordinator`. `Skopka.Chat.Client.Storage.Sqlite` is the optional local SQLite implementation.
 
 The `Skopka.Chat.Client.Browser` adapter introduced in 0.15.0 supplies encrypted IndexedDB

@@ -29,6 +29,7 @@ for (const engine of [chromium, firefox]) {
         const ids = await Promise.all([run('identity'), run('identity', second)]);
         if (ids[0] !== ids[1]) throw new Error('Cross-tab identity mismatch');
         await run('storage');
+        await run('backup');
         const eventResults = await Promise.all([run('event-race'), run('event-race', second)]);
         if (eventResults.sort().join(',') !== 'ok:Duplicate,ok:Stored') throw new Error('Independent event writers were not atomic');
         await run('partial');
@@ -40,7 +41,7 @@ for (const engine of [chromium, firefox]) {
             for (const row of rows) {
                 if (Object.keys(row).sort().join(',') !== allowed || !(row.ciphertext instanceof Uint8Array) || row.ciphertext.length < 16 || row.nonce.length !== 12) throw new Error('Unexpected plaintext storage field');
             }
-            for (const kind of ['keys', 'identity', 'events', 'plans', 'jobs']) if (!rows.some(row => row.kind === kind)) throw new Error('Missing encrypted storage category');
+            for (const kind of ['keys', 'identity', 'events', 'plans', 'jobs', 'backup', 'backupkeys']) if (!rows.some(row => row.kind === kind)) throw new Error('Missing encrypted storage category');
             if (localStorage.length !== 0 || sessionStorage.length !== 0) throw new Error('Unexpected browser string storage');
         });
         await page.reload();

@@ -191,7 +191,7 @@ public sealed class ChatViewModel
         }
     }
 
-    /// <summary>Applies already authenticated incoming or restored content.</summary>
+    /// <summary>Applies already sender-authenticated incoming or locally replayed content. Use ApplyRestored for backup assertions.</summary>
     public ChatProjectionApplyResult Apply(ReceivedChatContent delivery)
     {
         ArgumentNullException.ThrowIfNull(delivery);
@@ -210,6 +210,18 @@ public sealed class ChatViewModel
             OnStateChanged();
         }
 
+        return result;
+    }
+
+    /// <summary>Whether a visible archive trust warning is required, including imported edits/reactions and conflicts.</summary>
+    public bool ContainsBackupHistory => _projection.ContainsBackupHistory;
+
+    /// <summary>Explicit display-only backup import. Does not invoke send/sync/ACK or incoming-message handlers.</summary>
+    public ChatProjectionApplyResult ApplyRestored(RestoredChatContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content); ChatProjectionApplyResult result;
+        lock (_gate) { result = _projection.ApplyRestored(content); if (result != ChatProjectionApplyResult.Duplicate) { RefreshItems(); } }
+        if (result != ChatProjectionApplyResult.Duplicate) { OnStateChanged(); }
         return result;
     }
 

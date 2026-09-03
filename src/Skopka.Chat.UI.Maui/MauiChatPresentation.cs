@@ -183,6 +183,8 @@ public sealed class MauiChatPresentation : INotifyPropertyChanged, IDisposable
     public ReadOnlyObservableCollection<MauiChatTimelineItem> Items => _readOnlyItems;
     /// <summary>Current localized strings.</summary>
     public MauiChatStrings Strings => _strings;
+    /// <summary>Whether imported history requires an explicit trust warning.</summary>
+    public bool ContainsBackupHistory => _viewModel?.ContainsBackupHistory == true;
     /// <summary>Whether the host reports a loading operation.</summary>
     public bool IsLoading => _isLoading;
     /// <summary>Whether the empty state should be visible.</summary>

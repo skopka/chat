@@ -8,7 +8,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.15.0</ChatPackageVersion>
+    <ChatPackageVersion Condition="'$(ChatPackageVersion)' == ''">0.16.0</ChatPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,5 +1,8 @@
 # Documentation index
 
+- [Encrypted history backup, recovery, format and SkopiClub integration](backups.md) — opt-in, not yet published.
+- [ADR 0020: archive trust, immutable contributions and atomic restore](adr/0020-encrypted-history-backup.md).
+
 - [Browser WebAssembly client, encrypted vault and BFF integration](browser.md)
 - [ADR 0019: browser cryptography and storage](adr/0019-browser-client-cryptography-and-vault.md)
 

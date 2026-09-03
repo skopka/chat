@@ -15,6 +15,22 @@ namespace Skopka.Chat.UI.Blazor.Tests;
 
 public sealed class BlazorRenderingTests
 {
+    [Fact]
+    public async Task Restored_history_has_replaceable_encoded_trust_warning_without_sending()
+    {
+        var model = CreateModel();
+        model.ApplyRestored(new RestoredChatContent(ConversationId, PeerUserId, PeerDeviceId, DateTimeOffset.Parse("2026-09-03T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture),
+            new ChatTextContent(ChatContentId.New(), "<script>synthetic archive</script>")));
+        var html = await RenderAsync<SkopkaChat>(new Dictionary<string, object?>
+        {
+            [nameof(SkopkaChat.ViewModel)] = model,
+            [nameof(SkopkaChat.Strings)] = new SkopkaChatStrings { BackupTrustWarning = "<b>Archive trust</b>" },
+        });
+        Assert.Contains("&lt;b&gt;Archive trust&lt;/b&gt;", html, StringComparison.Ordinal);
+        Assert.Contains("&lt;script&gt;synthetic archive&lt;/script&gt;", html, StringComparison.Ordinal);
+        Assert.Contains("role=\"note\"", html, StringComparison.Ordinal);
+    }
+
     private static readonly ConversationId ConversationId =
         new(Guid.Parse("10000000-0000-0000-0000-000000000001"));
     private static readonly UserId CurrentUserId =

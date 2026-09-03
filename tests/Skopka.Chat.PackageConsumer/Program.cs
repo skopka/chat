@@ -17,6 +17,17 @@ using Skopka.Chat.UI;
 using Skopka.Chat.UI.Blazor;
 
 var typedContent = new ChatTextContent(ChatContentId.New(), "package consumer");
+using var backupKey = ChatBackupRecoveryKey.Create();
+using var parsedBackupKey = ChatBackupRecoveryKey.Parse(backupKey.ExportRecoveryCode());
+var backupArchive = new ChatBackupArchive(new("consumer-backup", UserId.New()), Guid.NewGuid(), Guid.NewGuid());
+var backupCrypto = new ChatBackupCryptography();
+var backupEvent = ChatBackupEventEncoding.Encode(new ReceivedChatContent(MessageId.New(), ConversationId.New(), UserId.New(), DeviceId.New(), TimeProvider.System.GetUtcNow(), typedContent));
+var backupPart = backupCrypto.Encrypt(backupKey, backupArchive, Guid.NewGuid(), 0, new byte[32], backupEvent);
+if (!backupEvent.AsSpan().SequenceEqual(backupCrypto.Decrypt(parsedBackupKey, backupArchive, ChatBackupEncoding.DecodePart(ChatBackupEncoding.EncodePart(backupPart)))))
+{ throw new InvalidOperationException("Backup package consumer failed."); }
+_ = typeof(SqliteBackupWorkspace);
+_ = typeof(PostgreSqlBackupStorage);
+_ = typeof(ChatBackupService);
 var keys = new InMemoryDeviceKeyStore();
 var now = TimeProvider.System.GetUtcNow();
 var device = await new DeviceIdentityService(keys).CreateAsync(UserId.New(), DeviceId.New(), now);

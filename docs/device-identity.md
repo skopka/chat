@@ -1,5 +1,11 @@
 # Постоянная identity и привязка авторизованной сессии
 
+Opt-in [backup истории](backups.md) в 0.16.0 не восстанавливает и не
+переносит DeviceId/private keys. На новом устройстве используется обычное явное
+создание собственной identity и enrollment; recovery key открывает только архив.
+Logout блокирует backup coordinator вместе с session. Отзыв старого устройства не
+стирает уже скопированный recovery key: host отдельно отзывает его Auth-сессии.
+
 Браузерная реализация использует тот же lifecycle: [Client.Browser](browser.md)
 хранит ключи/metadata в зашифрованном IndexedDB и сериализует создание через Web Locks.
 Portable key container v1 вводится явно; старые native NSec records остаются читаемыми.
@@ -7,7 +13,7 @@ Portable key container v1 вводится явно; старые native NSec re
 vault без удаления identity; полная очистка origin не позволяет восстановить ключи.
 См. [ADR 0019](adr/0019-browser-client-cryptography-and-vault.md).
 
-Неопубликованный bot gateway использует тот же lifecycle через `ProtectedFileBotIdentityStore`: отдельные scope/InstallationId, create-only keys, leased metadata и явное восстановление. Key ring ASP.NET Data Protection необходимо независимо защищать и сохранять; пример требует внешний сертификат. Это не автоматическая замена OS SecureStorage для MAUI. См. [ботов](bots.md).
+Bot gateway из 0.15.0 использует тот же lifecycle через `ProtectedFileBotIdentityStore`: отдельные scope/InstallationId, create-only keys, leased metadata и явное восстановление. Key ring ASP.NET Data Protection необходимо независимо защищать и сохранять; пример требует внешний сертификат. Это не автоматическая замена OS SecureStorage для MAUI. См. [ботов](bots.md).
 
 Начиная с версии `0.14.0`, `DeviceId` можно сохранять независимо от logout/re-login. Это отдельный opt-in механизм: старый claims-based HTTP-режим не меняется сам собой. Ничего не требуется менять в `SkopiClub.Auth`; изменения ниже выполняет потребитель пакетов в chat host и своём клиентском composition root. Приложения продукта не входят в этот репозиторий.
 

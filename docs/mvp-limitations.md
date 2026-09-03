@@ -1,5 +1,17 @@
 # MVP limitations and roadmap
 
+## Opt-in backup scope (0.16.0)
+
+[Backup-v1](backups.md) restores text/events and attachment references independently
+of message-delivery TTL, but **not binary files, pending outbox or old device identity**.
+It authenticates archive-key custody, not missing historical sender signatures.
+No automatic background schedule, password recovery, key rotation, compaction,
+trusted-device QR handoff, old-device erasure or fresh-device rollback proof.
+Completed ancestors are retained; quota exhaustion rejects new contributions.
+Recovery-key loss is unrecoverable. Native staging is plaintext under host protection;
+XSS/unlocked endpoint compromise defeats E2EE. Physical mobile keystore and Safari
+validation remain host deployment gates; this mechanism is not independently audited.
+
 ## Browser endpoint (0.15.0)
 
 Client.Browser supports the text/foreground stage with encrypted IndexedDB and

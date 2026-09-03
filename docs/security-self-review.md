@@ -1,5 +1,24 @@
 # Security-boundary self-review
 
+## Backup-v1 review (0.16.0)
+
+- Separate CSPRNG recovery secret, checksummed user input, purpose/context HKDF and
+  existing native/browser AEAD; no device identity derivation or export.
+- Bounded canonical parsers reject unknown formats, truncation and trailing bytes;
+  golden archive bytes, fuzz targets and native↔Chromium/Firefox interop cover boundaries.
+- Account-authenticated opt-in binary API derives service/user from trusted context,
+  validates expiry, and requires host account/rate policies. CSRF remains host-owned.
+- Account-serialized immutable part comparison, quota counters, complete-chain CAS,
+  separate PostgreSQL migration and pending-only cleanup; no delivery TTL dependency.
+- Durable encrypted preparation, exact ambiguous-commit recovery and protected restore
+  cursor; atomic active snapshot, no ACK/side effects, no pending outbox transfer.
+- Distinct restored type and explicit projection API; archive assertions cannot poison
+  already verified logical IDs. Conservative visible trust warning includes edits/reactions.
+- Tests cover cross-account/context, wrong key/tamper, partial writers/races, paging,
+  quota/write failure/cancellation, retry/restart and logout. See [backup test links](backups.md).
+- This is an internal review, not an independent cryptographic audit. Fresh devices
+  cannot prove head freshness; compromised recovery keys reveal/forge that generation.
+
 ## Browser integration review (0.15.0)
 
 Shared canonical/signature/AEAD and binding code now accepts an explicit primitive

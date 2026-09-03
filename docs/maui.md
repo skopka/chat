@@ -1,5 +1,13 @@
 # .NET MAUI integration
 
+The 0.16.0 opt-in [backup/recovery](backups.md): `SecureStorageBackupKeyStore` holds a
+create-only separate recovery credential; `SqliteBackupWorkspace` is a dedicated
+protected native database (restored rows are plaintext). Register the coordinator in
+`MauiChatSession(..., resources: null, asyncResources: [backup])` and await logout before account switch.
+Device private keys and pending outbox are never restored. See the compile-checked
+[composition example](../samples/Skopka.Chat.Maui.Sample/BackupExample.cs). OS backup
+exclusions, Keychain/Keystore and physical-device checks remain host responsibilities.
+
 `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` are optional endpoint packages for Android, iOS, Mac Catalyst and Windows. They do not change protocol-v1 or encrypted-content bytes and never move plaintext processing to the server. The complete, deliberately non-production composition is in [`samples/Skopka.Chat.Maui.Sample`](../samples/Skopka.Chat.Maui.Sample).
 
 ## Package boundary

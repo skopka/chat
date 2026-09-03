@@ -137,7 +137,8 @@ public sealed class MauiClientTests
     public async Task Lifecycle_coalesces_wakes_and_account_switch_cancels_old_session()
     {
         var firstTransport = new BlockingTransport();
-        var first = await CreateSessionAsync(firstTransport);
+        var backupLifetime = new TestAsyncResource();
+        var first = await CreateSessionAsync(firstTransport, [backupLifetime]);
         var secondTransport = new BlockingTransport();
         var second = await CreateSessionAsync(secondTransport);
         await using var sessions = new MauiChatSessionManager();
@@ -153,6 +154,7 @@ public sealed class MauiClientTests
         await switching;
 
         Assert.Same(second, sessions.Current);
+        Assert.True(backupLifetime.Closed);
         Assert.Equal(1, firstTransport.MaximumConcurrentCalls);
         await second.Lifecycle.StartAsync();
         await secondTransport.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -192,7 +194,7 @@ public sealed class MauiClientTests
         Assert.Equal(1, transport.MaximumConcurrentCalls);
     }
 
-    private static async Task<MauiChatSession> CreateSessionAsync(BlockingTransport transport)
+    private static async Task<MauiChatSession> CreateSessionAsync(BlockingTransport transport, IReadOnlyList<IAsyncDisposable>? asyncResources = null)
     {
         var user = UserId.New();
         var device = DeviceId.New();
@@ -207,7 +209,13 @@ public sealed class MauiClientTests
         var lifecycle = new MauiChatLifecycleCoordinator(
             sync,
             options: new MauiChatLifecycleOptions { MaximumAttempts = 1 });
-        return new MauiChatSession(new MauiChatSessionIdentity(user, device), lifecycle);
+        return new MauiChatSession(new MauiChatSessionIdentity(user, device), lifecycle, null, asyncResources);
+    }
+
+    private sealed class TestAsyncResource : IAsyncDisposable
+    {
+        public bool Closed { get; private set; }
+        public ValueTask DisposeAsync() { Closed = true; return ValueTask.CompletedTask; }
     }
 
     private static ChatDeviceTrustRecord Trust(

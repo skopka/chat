@@ -51,8 +51,9 @@ public sealed class ProjectedChatMessage : IProjectedChatItem
         ReceivedChatContent delivery,
         ChatTextContent content,
         ReceivedChatContent? edit,
-        IEnumerable<ProjectedChatReaction> reactions)
+        IEnumerable<ProjectedChatReaction> reactions, bool containsBackupHistory = false)
     {
+        ContainsBackupHistory = containsBackupHistory;
         ContentId = content.ContentId;
         DeliveryMessageId = delivery.DeliveryMessageId;
         SenderUserId = delivery.SenderUserId;
@@ -67,6 +68,9 @@ public sealed class ProjectedChatMessage : IProjectedChatItem
 
     /// <summary>Logical content identifier used by replies and reactions.</summary>
     public ChatContentId ContentId { get; }
+
+    /// <inheritdoc />
+    public bool ContainsBackupHistory { get; }
 
     /// <summary>Recipient-specific envelope id that supplied this local projection.</summary>
     public MessageId DeliveryMessageId { get; }
@@ -106,6 +110,9 @@ public sealed class ProjectedChatMessage : IProjectedChatItem
 /// <summary>Common rendering state for projected text and attachment items.</summary>
 public interface IProjectedChatItem
 {
+    /// <summary>Conservative trust warning: this projection contains recovery-key-authenticated history, not reverified sender signatures. Delivery IDs of restored items are display-only and must never be acknowledged.</summary>
+    bool ContainsBackupHistory => false;
+
     /// <summary>Logical content identifier used by replies and reactions.</summary>
     ChatContentId ContentId { get; }
 
@@ -143,8 +150,9 @@ public sealed class ProjectedChatAttachment : IProjectedChatItem
         ReceivedChatContent delivery,
         ChatAttachmentContent content,
         ReceivedChatContent? edit,
-        IEnumerable<ProjectedChatReaction> reactions)
+        IEnumerable<ProjectedChatReaction> reactions, bool containsBackupHistory = false)
     {
+        ContainsBackupHistory = containsBackupHistory;
         ContentId = content.ContentId;
         DeliveryMessageId = delivery.DeliveryMessageId;
         SenderUserId = delivery.SenderUserId;
@@ -163,6 +171,9 @@ public sealed class ProjectedChatAttachment : IProjectedChatItem
 
     /// <inheritdoc />
     public ChatContentId ContentId { get; }
+
+    /// <inheritdoc />
+    public bool ContainsBackupHistory { get; }
 
     /// <inheritdoc />
     public MessageId DeliveryMessageId { get; }
@@ -223,6 +234,7 @@ public sealed class ChatConversationProjection
     private readonly object _gate = new();
     private readonly Dictionary<ChatContentId, ReceivedChatContent> _events = [];
     private readonly HashSet<ChatContentId> _conflictedContentIds = [];
+    private readonly HashSet<ChatContentId> _restoredIds = [];
     private readonly Dictionary<ChatContentId, ReceivedChatContent> _items = [];
     private readonly Dictionary<ReactionKey, ReceivedChatContent> _reactionStates = [];
     private readonly Dictionary<EditKey, ReceivedChatContent> _editStates = [];
@@ -244,7 +256,19 @@ public sealed class ChatConversationProjection
     /// <summary>
     /// Applies verified content. Reactions and edits may arrive before their target and become visible when it arrives.
     /// </summary>
-    public ChatProjectionApplyResult Apply(ReceivedChatContent delivery)
+    public ChatProjectionApplyResult Apply(ReceivedChatContent delivery) => ApplyInternal(delivery, false);
+
+    /// <summary>Explicit display-only import. No delivery, acknowledgement or external callback runs. Verified local events always take precedence over restored assertions.</summary>
+    public ChatProjectionApplyResult ApplyRestored(RestoredChatContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return ApplyInternal(content.ProjectionOnly(), true);
+    }
+
+    /// <summary>True when this reducer contains imported assertions or conflicts, including edits/reactions. Display an archive trust warning.</summary>
+    public bool ContainsBackupHistory { get { lock (_gate) { return _restoredIds.Count != 0; } } }
+
+    private ChatProjectionApplyResult ApplyInternal(ReceivedChatContent delivery, bool restored)
     {
         ArgumentNullException.ThrowIfNull(delivery);
         if (delivery.ConversationId != ConversationId)
@@ -255,6 +279,12 @@ public sealed class ChatConversationProjection
         lock (_gate)
         {
             var contentId = delivery.Content.ContentId;
+            if (restored && !_restoredIds.Contains(contentId) && (_events.ContainsKey(contentId) || _conflictedContentIds.Contains(contentId)))
+            {
+                return _events.TryGetValue(contentId, out var verified) && IsSameEvent(verified, delivery) ? ChatProjectionApplyResult.Duplicate : ChatProjectionApplyResult.Conflict;
+            }
+            if (!restored && _restoredIds.Remove(contentId))
+            { _events.Remove(contentId); _conflictedContentIds.Remove(contentId); Rebuild(); }
             if (_conflictedContentIds.Contains(contentId))
             {
                 return ChatProjectionApplyResult.Conflict;
@@ -273,6 +303,7 @@ public sealed class ChatConversationProjection
                 return ChatProjectionApplyResult.Conflict;
             }
 
+            if (restored) { _restoredIds.Add(contentId); }
             _events.Add(contentId, delivery);
             ApplyCore(delivery);
             return ChatProjectionApplyResult.Applied;
@@ -325,7 +356,7 @@ public sealed class ChatConversationProjection
             delivery,
             text,
             FindEdit(delivery, ChatEditField.Text),
-            CreateReactions(text.ContentId));
+            CreateReactions(text.ContentId), _restoredIds.Count != 0);
     }
 
     private IProjectedChatItem CreateProjectedItem(ReceivedChatContent delivery) => delivery.Content switch
@@ -334,13 +365,13 @@ public sealed class ChatConversationProjection
             delivery,
             text,
             FindEdit(delivery, ChatEditField.Text),
-            CreateReactions(text.ContentId)),
+            CreateReactions(text.ContentId), _restoredIds.Count != 0),
         ChatAttachmentContent attachment =>
             new ProjectedChatAttachment(
                 delivery,
                 attachment,
                 FindEdit(delivery, ChatEditField.AttachmentCaption),
-                CreateReactions(attachment.ContentId)),
+                CreateReactions(attachment.ContentId), _restoredIds.Count != 0),
         _ => throw new InvalidOperationException("Unsupported projected chat content type."),
     };
 

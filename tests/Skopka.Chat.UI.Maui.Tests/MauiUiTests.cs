@@ -8,6 +8,19 @@ namespace Skopka.Chat.UI.Maui.Tests;
 public sealed class MauiUiTests
 {
     [Fact]
+    public void Restored_history_updates_replaceable_native_trust_warning()
+    {
+        var conversation = ConversationId.New(); var user = UserId.New();
+        var model = new ChatViewModel(conversation, user, new NoOpSender());
+        using var presentation = new MauiChatPresentation(new ImmediateDispatcher());
+        presentation.SetViewModel(model); presentation.SetStrings(new MauiChatStrings { BackupTrustWarning = "synthetic localized warning" });
+        Assert.False(presentation.ContainsBackupHistory);
+        model.ApplyRestored(new RestoredChatContent(conversation, user, DeviceId.New(), DateTimeOffset.UtcNow, new ChatTextContent(ChatContentId.New(), "synthetic")));
+        Assert.True(presentation.ContainsBackupHistory); Assert.Single(presentation.Items);
+        Assert.Equal("synthetic localized warning", presentation.Strings.BackupTrustWarning);
+    }
+
+    [Fact]
     public void Maui_ui_package_preserves_presentation_only_dependency_direction()
     {
         var references = typeof(SkopkaChatView).Assembly

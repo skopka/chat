@@ -142,6 +142,18 @@ internal static class ChatFuzzTarget
                 case 19:
                     RoundTrip(json, BotIdentityJson.Default.KeyRecord);
                     break;
+                case 21:
+                    _ = ChatBackupEncoding.EncodeArchive(ChatBackupEncoding.DecodeArchive(DecodeContentSeed(json)));
+                    break;
+                case 22:
+                    _ = ChatBackupEncoding.EncodePart(ChatBackupEncoding.DecodePart(DecodeContentSeed(json)));
+                    break;
+                case 23:
+                    _ = ChatBackupEncoding.EncodeVersion(ChatBackupEncoding.DecodeVersion(DecodeContentSeed(json)));
+                    break;
+                case 24:
+                    _ = ChatBackupEventEncoding.Encode(ChatBackupEventEncoding.Decode(DecodeContentSeed(json)));
+                    break;
                 default:
                     RoundTrip(json, BotIdentityJson.Default.MetadataRecord);
                     break;
@@ -158,6 +170,10 @@ internal static class ChatFuzzTarget
         catch (ChatContentFormatException)
         {
             // Malformed or unsupported authenticated content is an expected fuzz outcome.
+        }
+        catch (ChatBackupFormatException)
+        {
+            // Separate canonical backup/event domain: unknown versions, truncation and trailing bytes fail closed.
         }
         catch (ArgumentException) when (selector >= 11)
         {
@@ -194,13 +210,13 @@ internal static class ChatFuzzTarget
                 value = (value * 10) + input[index] - (byte)'0';
             }
 
-            if (value is >= 0 and <= 20)
+            if (value is >= 0 and <= 24)
             {
                 return (byte)value;
             }
         }
 
-        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 21);
+        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 25);
     }
 
     private static byte[] DecodeContentSeed(ReadOnlySpan<byte> value)

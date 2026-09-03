@@ -58,7 +58,7 @@ function getHandle(id) {
 }
 function aad(row) { return encoder.encode(JSON.stringify(['Skopka.Chat.Browser.Record', 1, row.scope, row.kind, row.key, row.partition, row.revision])); }
 function validateSlot(kind, key, partition) {
-    if (!['identity', 'keys', 'events', 'plans', 'jobs'].includes(kind) || !/^[a-zA-Z0-9-]{1,128}$/.test(key) || !/^[a-zA-Z0-9-]{0,128}$/.test(partition)) throw new VaultFault('corrupt');
+    if (!['identity', 'keys', 'events', 'plans', 'jobs', 'backup', 'backupkeys'].includes(kind) || !/^[a-zA-Z0-9-]{1,128}$/.test(key) || !/^[a-zA-Z0-9-]{0,128}$/.test(partition)) throw new VaultFault('corrupt');
 }
 async function seal(key, row, plaintext) {
     if (!(plaintext instanceof Uint8Array) || plaintext.length < 1 || plaintext.length > maxRecord) throw new VaultFault('corrupt');

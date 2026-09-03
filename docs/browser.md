@@ -1,5 +1,13 @@
 # Browser E2EE integration
 
+The 0.16.0 opt-in [encrypted history backup](backups.md) adds `BrowserBackupKeyStore`
+and `BrowserBackupWorkspace` inside the existing encrypted vault. Use the existing
+browser primitive provider and cookie/BFF authorizer; no crypto or recovery code
+passes through server prerender/BFF. Attach the coordinator to `BrowserChatSession`
+so logout cancels/awaits backup before closing the vault. New devices retain their
+own installation and device keys. The compile-checked [factory](../samples/Skopka.Chat.Browser.Sample/BackupExample.cs)
+does not automatically enable backup. Imported history requires the visible trust warning.
+
 Introduced in package line **0.15.0**. Existing 0.14.0 servers remain compatible.
 This browser text stage uses the existing server wire protocol;
 no server decryption, private-key endpoint or protocol upgrade is required.
@@ -178,8 +186,8 @@ For local package-consumer validation after packing a fresh coordinated local
 version (not a publication):
 
 ```powershell
-dotnet pack Skopka.Chat.sln -c Release --no-build --no-restore -p:PackageVersion=0.15.0-browser-local -o artifacts/browser-packages
-$env:CHAT_BROWSER_PACKAGE_VERSION = '0.15.0-browser-local'
+dotnet pack Skopka.Chat.sln -c Release --no-build --no-restore -p:PackageVersion=0.16.0-browser-local -o artifacts/browser-packages
+$env:CHAT_BROWSER_PACKAGE_VERSION = '0.16.0-browser-local'
 $env:CHAT_BROWSER_PACKAGE_FEED = 'artifacts/browser-packages'
 node eng/browser/run-gate.mjs
 Remove-Item Env:CHAT_BROWSER_PACKAGE_VERSION

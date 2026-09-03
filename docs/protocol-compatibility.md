@@ -1,5 +1,21 @@
 # Protocol and package compatibility
 
+## Independent backup-v1 in 0.16.0
+
+Opt-in account history archives add separate canonical backup/event domains, not
+changes to protocol-v1/content-v1/v2/v3/binding-v1. Existing native/Browser vault and
+journal records remain readable. New vault record kinds are authenticated with the
+existing kind-bound AAD; old clients do not consume them. A separate native backup
+workspace schema and PostgreSQL migration/history table do not change envelope TTL.
+Restore does not import device keys or outbox; explicit restored provenance is not
+sender-signature verification. Server endpoints must be mapped explicitly. See
+[backup-v1 format and compatibility](backups.md) and [ADR 0020](adr/0020-encrypted-history-backup.md).
+
+Backup requires the coordinated 0.16.0 client/server packages and the separate
+`202609030001_EncryptedHistoryBackups` migration. Older hosts remain compatible for
+ordinary chat but do not expose backup endpoints. No existing identity, journal or
+envelope migration is required merely to upgrade the packages.
+
 ## Browser endpoint in 0.15.0
 
 Client adds a browser TFM and trusted primitive provider without changing
@@ -59,6 +75,7 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.13.x` | v1 | v1 | Adds conversation/device directory APIs, retry-safe multi-device fan-out, durable outbox/history paging and optional MAUI client/UI adapters. Content v1/v2/v3 and protocol-v1 canonical bytes remain unchanged. |
 | `0.14.x` | v1 | v1 | Adds persistent identity and opt-in session-binding-v1, an optional Server.NSec verifier and atomic PostgreSQL enrollment/binding. Encrypted envelope/content bytes unchanged. |
 | `0.15.x` | v1 | v1 | Adds browser cryptography/encrypted local vault, cookie-BFF adapters and owner-hosted text bots. Native NSec key storage remains supported; envelope/content/binding bytes and existing server HTTP contracts are unchanged. Coordinated set: 23 packages. |
+| `0.16.x` | v1 | v1 | Adds opt-in E2EE history backup/recovery with independent backup-v1 domains, account-scoped HTTP/PostgreSQL storage and Browser/MAUI adapters. Restored history is explicitly archive-key authenticated, not sender-signature reverified; device identity/outbox are not transferred. Existing envelope/content/binding bytes are unchanged. Coordinated set: 23 packages. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
 

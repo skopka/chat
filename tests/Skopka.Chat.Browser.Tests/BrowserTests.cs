@@ -33,6 +33,7 @@ public sealed class BrowserTests(IJSRuntime js, Uri origin)
                 "prepare" => await PrepareAsync(),
                 "identity" => await IdentityAsync(crypto),
                 "storage" => await StorageAsync(crypto),
+                "backup" => await BackupAsync(crypto),
                 "event-race" => await ConcurrentEventAsync(crypto),
                 "partial" => await PartialAsync(crypto, false),
                 "retry" => await PartialAsync(crypto, true),
@@ -110,7 +111,77 @@ public sealed class BrowserTests(IJSRuntime js, Uri origin)
         _phase = "browser-encrypt";
         var envelope = await engine.EncryptContentAsync(new ChatTextContent(ChatContentId.New(), "synthetic browser/native interop — 🔐"),
             Conversation, MessageId.New(), bob.DeviceId, alice, Now);
-        return JsonSerializer.Serialize(new InteropResult(EncryptedEnvelopeDto.FromDomain(envelope), proof.Signature.ToArray()), InteropJson.Default.InteropResult);
+        _phase = "backup-native-browser";
+        using var recovery = ChatBackupRecoveryKey.FromBytes(fixture.BackupKey);
+        var archive = ChatBackupEncoding.DecodeArchive(fixture.BackupArchive); var backupCrypto = new ChatBackupCryptography(provider);
+        backupCrypto.Verify(recovery, archive, ChatBackupEncoding.DecodeVersion(fixture.BackupSeal));
+        var restoredBytes = backupCrypto.Decrypt(recovery, archive, ChatBackupEncoding.DecodePart(fixture.BackupPart));
+        var restored = ChatBackupEventEncoding.Decode(restoredBytes);
+        Check(restored.Content is ChatTextContent restoredText && restoredText.Text == "synthetic native/browser interop — 🔐");
+        var backupPart = backupCrypto.Encrypt(recovery, archive, Guid.NewGuid(), 0, new byte[32], restoredBytes);
+        CryptographicOperations.ZeroMemory(restoredBytes);
+        var backupBytes = ChatBackupEncoding.EncodePart(backupPart);
+        var seal = backupCrypto.Seal(recovery, archive, backupPart.UploadId, null, 1, backupBytes.Length, SHA256.HashData(backupBytes), Now);
+        return JsonSerializer.Serialize(new InteropResult(EncryptedEnvelopeDto.FromDomain(envelope), proof.Signature.ToArray(), backupBytes, ChatBackupEncoding.EncodeVersion(seal)), InteropJson.Default.InteropResult);
+    }
+
+    private async Task<string> BackupAsync(BrowserChatCryptography provider)
+    {
+        _phase = "backup-vault";
+        await using var vault = await OpenAsync("backup-browser-tests", true);
+        var transport = new BackupTransport(); var events = new BrowserChatEventStore(vault);
+        for (var index = 0; index < 106; index++)
+        { await events.StoreAsync(new ReceivedChatContent(MessageId.New(), Conversation, User, DeviceId.New(), Now, new ChatTextContent(ChatContentId.New(), "synthetic backup " + index))); }
+        await using var source = new ChatBackupCoordinator(new BrowserBackupKeyStore(vault), new BrowserBackupWorkspace(vault), events, transport, new(provider), Clock);
+        var code = await source.BeginEnableAsync(); await source.ConfirmRecoveryKeyAsync(code); await source.BackupAsync();
+        Check(await source.RestoreAsync() == 106);
+        using var fixtureHttp = new HttpClient { BaseAddress = origin };
+        var fixture = JsonSerializer.Deserialize(await fixtureHttp.GetByteArrayAsync("test-vectors.json"), InteropJson.Default.InteropFixture)!;
+        var archive = ChatBackupEncoding.DecodeArchive(fixture.BackupArchive);
+        transport.Seed(archive, ChatBackupEncoding.DecodeVersion(fixture.BackupSeal), ChatBackupEncoding.DecodePart(fixture.BackupPart));
+        using var recovery = ChatBackupRecoveryKey.FromBytes(fixture.BackupKey); code = recovery.ExportRecoveryCode();
+        var freshScope = new DeviceIdentityScope(archive.Scope.ServiceId, archive.Scope.UserId, vault.Scope.InstallationId);
+        var phrase = Encoding.UTF8.GetBytes("synthetic new device local phrase");
+        _phase = "backup-fresh-vault";
+        await using (var freshVault = await BrowserVault.OpenAsync(js, freshScope, phrase, true))
+        {
+            await using var fresh = new ChatBackupCoordinator(new BrowserBackupKeyStore(freshVault), new BrowserBackupWorkspace(freshVault), new BrowserChatEventStore(freshVault), transport, new(provider), Clock);
+            var identityStore = new BrowserDeviceIdentityStore(freshVault);
+            var identityService = new PersistentDeviceIdentityService(identityStore, identityStore, Clock, provider);
+            var identity = (await identityService.CreateAsync(freshScope)).Metadata!;
+            _phase = "backup-unlock-restore"; await fresh.UnlockAsync(code); Check(await fresh.RestoreAsync() == 1);
+            var count = 0; await foreach (var item in fresh.ReadRestoredAsync()) { Check(item.Content is ChatTextContent); count++; }
+            Check(count == 1);
+            Check(await fresh.RestoreAsync() == 1);
+            Check((await identityService.LoadAsync(freshScope)).Metadata!.DeviceId == identity.DeviceId);
+        }
+        await using (var reopened = await BrowserVault.OpenAsync(js, freshScope, phrase))
+        {
+            await using var fresh = new ChatBackupCoordinator(new BrowserBackupKeyStore(reopened), new BrowserBackupWorkspace(reopened), new BrowserChatEventStore(reopened), transport, new(provider), Clock);
+            _phase = "backup-reopen"; Check((await fresh.RefreshAsync()).Phase == ChatBackupPhase.Ready);
+            var count = 0; await foreach (var _ in fresh.ReadRestoredAsync()) { count++; }
+            Check(count == 1);
+            await fresh.DisposeAsync();
+            try { await fresh.RestoreAsync(); throw new InvalidOperationException("Closed backup was readable."); }
+            catch (ChatBackupException error) { Check(error.Failure == ChatBackupFailure.Locked); }
+        }
+        return "ok";
+    }
+
+    // Synthetic remote ciphertext fixture; real atomicity/quotas are exercised by server and PostgreSQL tests.
+    private sealed class BackupTransport : IChatBackupTransport
+    {
+        private ChatBackupArchive? _archive; private ChatBackupVersion? _head;
+        private readonly Dictionary<(Guid, int), ChatBackupPart> _parts = [];
+        public void Seed(ChatBackupArchive archive, ChatBackupVersion seal, ChatBackupPart part) { _archive = archive; _head = seal; _parts.Clear(); _parts[(part.UploadId, part.Index)] = part; }
+        public ValueTask<ChatBackupArchive?> GetArchiveAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(_archive);
+        public ValueTask<bool> TryCreateArchiveAsync(ChatBackupArchive archive, CancellationToken cancellationToken = default) { if (_archive is not null) { return ValueTask.FromResult(false); } _archive = archive; return ValueTask.FromResult(true); }
+        public ValueTask<ChatBackupVersion?> GetHeadAsync(Guid archiveId, CancellationToken cancellationToken = default) => ValueTask.FromResult(_head);
+        public ValueTask BeginUploadAsync(Guid archiveId, Guid uploadId, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PutPartAsync(Guid archiveId, ChatBackupPart part, CancellationToken cancellationToken = default) { _parts[(part.UploadId, part.Index)] = part; return ValueTask.CompletedTask; }
+        public ValueTask<ChatBackupCommitResult> CommitAsync(ChatBackupVersion version, CancellationToken cancellationToken = default) { _head = version; return ValueTask.FromResult(ChatBackupCommitResult.Committed); }
+        public ValueTask<ChatBackupVersion?> GetVersionAsync(Guid archiveId, Guid versionId, CancellationToken cancellationToken = default) => ValueTask.FromResult(_head?.VersionId == versionId ? _head : null);
+        public ValueTask<ChatBackupPart?> GetPartAsync(Guid archiveId, Guid uploadId, int index, CancellationToken cancellationToken = default) => ValueTask.FromResult(_parts.GetValueOrDefault((uploadId, index)));
     }
 
     private async Task<string> PrepareAsync()

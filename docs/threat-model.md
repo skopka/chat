@@ -1,5 +1,24 @@
 # Threat model
 
+## Encrypted-history backup boundary (0.16.0)
+
+Backup-v1 is opt-in and uses a separate random recovery key, HKDF domain separation
+and the existing XChaCha20-Poly1305 provider. Archive metadata and complete immutable
+version ancestry are authenticated. Server/API/storage never receive this key,
+device private keys or decrypted history. Account scope is trusted-host resolved.
+Imported historical sender assertions are **not reverified signatures**: the journal
+does not preserve that evidence. Recovery-key holders can forge archive assertions;
+display-only imports never trigger delivery ACK/outbox/bot handlers. Local verified
+events take precedence. Native staging needs protected plaintext storage; Browser
+staging is vault-encrypted. Metadata leakage, archive-key compromise, endpoint/XSS
+compromise, withholding and fresh-device rollback without an external anchor remain
+limits. No rotation/compaction/QR/media-binary backup claim. See [backups](backups.md)
+and [ADR 0020](adr/0020-encrypted-history-backup.md). Because the server cannot check
+AEAD tags, an authorized account writer without the recovery key can append an
+invalid head (availability attack, not decryption). Clients fail closed; previous
+immutable versions survive. Host publish/step-up policy and session revocation
+matter; public archive-key proof/head repair are not implemented. No independent audit has occurred.
+
 ## Browser endpoint boundary (0.15.0)
 
 The browser target uses shared Client protocol logic with a locally vendored

@@ -256,18 +256,29 @@ public readonly record struct MauiChatSessionIdentity(UserId UserId, DeviceId De
 public sealed class MauiChatSession : IAsyncDisposable
 {
     private readonly IReadOnlyList<IDisposable> _resources;
+    private readonly IReadOnlyList<IAsyncDisposable> _asyncResources;
     private bool _disposed;
 
     /// <summary>Creates a session. Access-token acquisition remains host-provided.</summary>
     public MauiChatSession(
         MauiChatSessionIdentity identity,
         MauiChatLifecycleCoordinator lifecycle,
-        IReadOnlyList<IDisposable>? resources = null)
+        IReadOnlyList<IDisposable>? resources = null) : this(identity, lifecycle, resources, null)
+    {
+    }
+
+    /// <summary>Creates a session with additional async resources such as an opt-in backup coordinator.</summary>
+    public MauiChatSession(
+        MauiChatSessionIdentity identity,
+        MauiChatLifecycleCoordinator lifecycle,
+        IReadOnlyList<IDisposable>? resources,
+        IReadOnlyList<IAsyncDisposable>? asyncResources)
     {
         identity.Validate();
         Identity = identity;
         Lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
         _resources = resources ?? [];
+        _asyncResources = asyncResources?.ToArray() ?? [];
     }
 
     /// <summary>Authenticated user/device pair resolved by the host and server token claims.</summary>
@@ -285,11 +296,20 @@ public sealed class MauiChatSession : IAsyncDisposable
         }
 
         _disposed = true;
-        await Lifecycle.DisposeAsync().ConfigureAwait(false);
+        var failed = false;
+        try { await Lifecycle.DisposeAsync().ConfigureAwait(false); }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException) { failed = true; }
+        foreach (var resource in _asyncResources.Reverse())
+        {
+            try { await resource.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException) { failed = true; }
+        }
         foreach (var resource in _resources.Reverse())
         {
-            resource.Dispose();
+            try { resource.Dispose(); }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException) { failed = true; }
         }
+        if (failed) { throw new InvalidOperationException("Chat session cleanup failed."); }
     }
 }
 

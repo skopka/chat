@@ -37,6 +37,17 @@ public sealed class BrowserChatSession : IAsyncDisposable
     /// <summary>Exact persisted recipient-specific ciphertext plans.</summary>
     public BrowserChatOutboxStore Outbox { get; }
 
+    /// <summary>Optional account-scoped backup coordinator owned by this session after explicit attachment.</summary>
+    public ChatBackupCoordinator? Backup { get; private set; }
+
+    /// <summary>Attaches the opt-in backup lifetime. Call during composition, before using the session.</summary>
+    public void AttachBackup(ChatBackupCoordinator backup)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this); ArgumentNullException.ThrowIfNull(backup);
+        if (Backup is not null || backup.Scope != new ChatBackupScope(_vault.Scope.ServiceId, _vault.Scope.UserId)) { throw new ChatBackupException(ChatBackupFailure.Scope); }
+        Backup = backup;
+    }
+
     /// <summary>Durably queues canonical content before any directory lookup, encryption or network request.</summary>
     public async ValueTask QueueAsync(ConversationId conversationId, ChatContent content, CancellationToken cancellationToken = default)
     {
@@ -127,6 +138,7 @@ public sealed class BrowserChatSession : IAsyncDisposable
         if (_disposed) { return; }
         _disposed = true;
         await _lifetime.CancelAsync().ConfigureAwait(false);
+        if (Backup is not null) { await Backup.DisposeAsync().ConfigureAwait(false); }
         await _gate.WaitAsync().ConfigureAwait(false);
         try { _sync.Dispose(); }
         finally { _gate.Release(); _lifetime.Dispose(); }

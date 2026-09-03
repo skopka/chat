@@ -3,6 +3,9 @@ namespace Skopka.Chat.UI.Maui;
 /// <summary>Replaceable user-visible strings for the native MAUI conversation surface.</summary>
 public sealed record MauiChatStrings
 {
+    /// <summary>Archive provenance and attachment-availability warning.</summary>
+    public string BackupTrustWarning { get; init; } = "Includes restored history protected by your recovery key; original sender signatures were not reverified. Attachment files may be unavailable.";
+
     /// <summary>Default English strings.</summary>
     public static MauiChatStrings Default { get; } = new();
 

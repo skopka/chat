@@ -9,6 +9,8 @@ public static class PackageConsumer
     [
         typeof(SecureStorageDeviceKeyStore).FullName!,
         typeof(SecureStorageDeviceIdentityStore).FullName!,
+        typeof(SecureStorageBackupKeyStore).FullName!,
+        typeof(Skopka.Chat.Client.Storage.ChatBackupCoordinator).FullName!,
         typeof(FileIdentityStorageLock).FullName!,
         typeof(MauiChatLifecycleCoordinator).FullName!,
         typeof(SkopkaChatView).FullName!,
