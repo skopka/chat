@@ -36,14 +36,22 @@ internal sealed class DeviceEntity
 
 internal sealed class ConversationEntity
 {
+    public const short PersonalKind = 1;
+    public const short GroupKind = 2;
+
     public Guid ConversationId { get; set; }
-    public Guid FirstUserId { get; set; }
-    public Guid SecondUserId { get; set; }
+    public short ConversationKind { get; set; } = PersonalKind;
+    public Guid? FirstUserId { get; set; }
+    public Guid? SecondUserId { get; set; }
+    public string? Title { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public long? Revision { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
     public static ConversationEntity FromDomain(PersonalConversation conversation) => new()
     {
         ConversationId = conversation.ConversationId.Value,
+        ConversationKind = PersonalKind,
         FirstUserId = conversation.FirstUserId.Value,
         SecondUserId = conversation.SecondUserId.Value,
         CreatedAt = conversation.CreatedAt
@@ -51,9 +59,50 @@ internal sealed class ConversationEntity
 
     public PersonalConversation ToDomain() => new(
         new ConversationId(ConversationId),
-        new UserId(FirstUserId),
-        new UserId(SecondUserId),
+        new UserId(FirstUserId!.Value),
+        new UserId(SecondUserId!.Value),
         CreatedAt);
+
+    public static ConversationEntity FromDomain(GroupConversation conversation) => new()
+    {
+        ConversationId = conversation.ConversationId.Value,
+        ConversationKind = GroupKind,
+        Title = conversation.Title,
+        CreatedByUserId = conversation.CreatedByUserId.Value,
+        Revision = conversation.Revision,
+        CreatedAt = conversation.CreatedAt
+    };
+
+    public GroupConversation ToGroupDomain(IReadOnlyCollection<GroupConversationMember> members) => new(
+        new ConversationId(ConversationId),
+        Title!,
+        new UserId(CreatedByUserId!.Value),
+        Revision!.Value,
+        CreatedAt,
+        members);
+}
+
+internal sealed class GroupConversationMemberEntity
+{
+    public Guid ConversationId { get; set; }
+    public Guid UserId { get; set; }
+    public short Role { get; set; }
+    public DateTimeOffset JoinedAt { get; set; }
+
+    public static GroupConversationMemberEntity FromDomain(
+        ConversationId conversationId,
+        GroupConversationMember member) => new()
+        {
+            ConversationId = conversationId.Value,
+            UserId = member.UserId.Value,
+            Role = (short)member.Role,
+            JoinedAt = member.JoinedAt
+        };
+
+    public GroupConversationMember ToDomain() => new(
+        new UserId(UserId),
+        (GroupConversationRole)Role,
+        JoinedAt);
 }
 
 internal sealed class EnvelopeEntity

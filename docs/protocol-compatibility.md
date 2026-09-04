@@ -76,6 +76,8 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.14.x` | v1 | v1 | Adds persistent identity and opt-in session-binding-v1, an optional Server.NSec verifier and atomic PostgreSQL enrollment/binding. Encrypted envelope/content bytes unchanged. |
 | `0.15.x` | v1 | v1 | Adds browser cryptography/encrypted local vault, cookie-BFF adapters and owner-hosted text bots. Native NSec key storage remains supported; envelope/content/binding bytes and existing server HTTP contracts are unchanged. Coordinated set: 23 packages. |
 | `0.16.x` | v1 | v1 | Adds opt-in E2EE history backup/recovery with independent backup-v1 domains, account-scoped HTTP/PostgreSQL storage and Browser/MAUI adapters. Restored history is explicitly archive-key authenticated, not sender-signature reverified; device identity/outbox are not transferred. Existing envelope/content/binding bytes are unchanged. Coordinated set: 23 packages. |
+| `0.17.x` | v1 | v1 | Adds a browser-bound non-extractable trusted vault key and one-time migration from phrase vaults. Envelope/content/binding bytes remain unchanged. |
+| `0.18.x` | v1 | v1 | Adds server-visible bounded groups and content-v4 text with encrypted structured mentions. Unmentioned text remains byte-identical content v1; outer envelope and binding bytes remain unchanged. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
 
@@ -98,6 +100,12 @@ Package `0.11.x` emits content v1 for `ChatTextContent` and `ChatReactionContent
 Package `0.11.x` prepares optional photo/video plaintext before the attachment encryption step. `Auto`, `Media` and exact `File` modes are local API semantics and add no new content fields. A recipient with attachment-content-v2 support can receive/decrypt the result without referencing the media package. See [ADR 0012](adr/0012-client-media-preparation.md).
 
 Package `0.12.x` adds `ChatEditContent` as content v3. It does not reinterpret text/reaction content v1 or attachment content v2. Clients through `0.11.x` can authenticate and decrypt an edit envelope as opaque bytes but their typed decoder rejects content v3; all participants that project edits must therefore support v3. Exact bytes, author checks and deterministic folding are pinned in [ADR 0013](adr/0013-encrypted-message-edits.md).
+
+Package `0.18.x` adds content-v4 only when `ChatTextContent` has one or more
+structured mention targets. Ordinary text still emits content v1. Clients through
+`0.17.x` reject v4 in typed APIs. Mention targets and `@all` intent remain encrypted;
+group title, member IDs, roles and revision are server-visible. Exact bytes and
+membership semantics are pinned in [ADR 0021](adr/0021-small-groups-and-encrypted-mentions.md).
 
 The `Skopka.Chat.Client.Storage` and `.Sqlite` packages in `0.12.x` operate only after protocol/content authentication. Their event schema and store/apply/ack coordinator do not change any transmitted bytes or require the server to understand typed content. SQLite rows contain local plaintext and are a host-protected endpoint asset, as defined in [ADR 0014](adr/0014-durable-client-events-and-sync.md).
 

@@ -57,6 +57,26 @@ public sealed class ChatViewModelTests
     }
 
     [Fact]
+    public async Task Host_mention_resolver_adds_encrypted_targets_to_new_text_only()
+    {
+        var sender = new RecordingSender(CurrentUserId, CurrentDeviceId);
+        var model = new ChatViewModel(
+            ConversationId,
+            CurrentUserId,
+            sender,
+            text => text.Contains("@all", StringComparison.OrdinalIgnoreCase)
+                ? [ChatMention.Everyone]
+                : []);
+        model.SetDraftText("hello @all");
+
+        Assert.True(await model.TrySendDraftAsync());
+
+        var content = Assert.IsType<ChatTextContent>(Assert.Single(sender.Sent).Content);
+        Assert.True(content.MentionsEveryone);
+        Assert.True(Assert.Single(model.Messages).Mentions.Single().Kind == ChatMentionKind.Everyone);
+    }
+
+    [Fact]
     public async Task Expected_send_failure_preserves_draft_and_reply_without_error_text()
     {
         var sender = new RecordingSender(CurrentUserId, CurrentDeviceId) { FailExpectedly = true };

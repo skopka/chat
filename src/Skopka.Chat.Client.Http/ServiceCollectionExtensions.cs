@@ -32,6 +32,8 @@ public static class SkopkaChatHttpClientServiceCollectionExtensions
             provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
         services.TryAddTransient<Skopka.Chat.Client.IChatConversationDirectory>(provider =>
             provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
+        services.TryAddTransient<Skopka.Chat.Client.IChatGroupConversationDirectory>(provider =>
+            provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
         services.TryAddTransient<Skopka.Chat.Client.IRecipientDeviceDirectory>(provider =>
             provider.GetRequiredService<Skopka.Chat.Client.Http.SkopkaChatHttpClient>());
         return services

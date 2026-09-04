@@ -153,6 +153,74 @@ public sealed class ServerEngineTests
         Assert.Equal(SubmitEnvelopeResult.Accepted, await fixture.Engine.SubmitAsync(envelope, fixture.Now));
     }
 
+    [Fact]
+    public async Task Group_fans_out_to_all_current_member_devices_and_rejects_removed_members()
+    {
+        var store = new InMemoryServerStore();
+        var engine = new ChatServerEngine(store, store, store, store);
+        var now = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        var alice = ServerFixture.Device(UserId.New(), DeviceId.New(), KeyId.New(), 1, now);
+        var bob = ServerFixture.Device(UserId.New(), DeviceId.New(), KeyId.New(), 65, now);
+        var charlie = ServerFixture.Device(UserId.New(), DeviceId.New(), KeyId.New(), 129, now);
+        await engine.RegisterDeviceAsync(alice);
+        await engine.RegisterDeviceAsync(bob);
+        await engine.RegisterDeviceAsync(charlie);
+        var group = await engine.CreateGroupConversationAsync(
+            alice.UserId,
+            ConversationId.New(),
+            "Project",
+            [bob.UserId, charlie.UserId],
+            now);
+
+        var directory = await engine.ListConversationDevicesAsync(alice.UserId, group.ConversationId, null, 10);
+        Assert.Equal(3, directory.Items.Count);
+        Assert.Contains(directory.Items, item => item.DeviceId == alice.DeviceId);
+        Assert.Contains(directory.Items, item => item.DeviceId == bob.DeviceId);
+        Assert.Contains(directory.Items, item => item.DeviceId == charlie.DeviceId);
+
+        var envelope = Envelope(group.ConversationId, alice, charlie, now);
+        Assert.Equal(SubmitEnvelopeResult.Accepted, await engine.SubmitAsync(envelope, now));
+
+        group = await engine.RemoveGroupMemberAsync(
+            alice.UserId,
+            group.ConversationId,
+            charlie.UserId,
+            group.Revision);
+        await Assert.ThrowsAsync<ChatServerException>(async () =>
+            await engine.SubmitAsync(Envelope(group.ConversationId, alice, charlie, now.AddMinutes(2)), now.AddMinutes(2)));
+    }
+
+    [Fact]
+    public async Task Group_roles_and_revisions_protect_membership_changes()
+    {
+        var store = new InMemoryServerStore();
+        var engine = new ChatServerEngine(store, store, store, store);
+        var owner = UserId.New();
+        var member = UserId.New();
+        var newcomer = UserId.New();
+        var now = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        var group = await engine.CreateGroupConversationAsync(
+            owner,
+            ConversationId.New(),
+            "Team",
+            [member],
+            now);
+
+        await Assert.ThrowsAsync<ChatServerException>(async () =>
+            await engine.AddGroupMemberAsync(member, group.ConversationId, newcomer, group.Revision, now));
+
+        group = await engine.ChangeGroupMemberRoleAsync(
+            owner, group.ConversationId, member, GroupConversationRole.Administrator, group.Revision);
+        var staleRevision = group.Revision;
+        group = await engine.AddGroupMemberAsync(member, group.ConversationId, newcomer, group.Revision, now.AddMinutes(1));
+        Assert.Equal(GroupConversationRole.Member, group.FindMember(newcomer)?.Role);
+
+        await Assert.ThrowsAsync<ChatServerException>(async () =>
+            await engine.RenameGroupConversationAsync(owner, group.ConversationId, "Stale", staleRevision));
+        await Assert.ThrowsAsync<ChatServerException>(async () =>
+            await engine.RemoveGroupMemberAsync(member, group.ConversationId, owner, group.Revision));
+    }
+
     private static EncryptedEnvelope Clone(EncryptedEnvelope source, byte[] ciphertext) => new(
         source.ProtocolVersion,
         source.MessageId,
@@ -168,6 +236,26 @@ public sealed class ServerEngineTests
         ciphertext,
         source.AuthenticationTag.Span,
         source.Signature.Span);
+
+    private static EncryptedEnvelope Envelope(
+        ConversationId conversationId,
+        PublicDevice sender,
+        PublicDevice recipient,
+        DateTimeOffset sentAt) => new(
+        ProtocolVersions.V1,
+        MessageId.New(),
+        conversationId,
+        sender.DeviceId,
+        recipient.DeviceId,
+        sender.KeyId,
+        recipient.KeyId,
+        sentAt,
+        sentAt.AddDays(1),
+        Enumerable.Range(0, 32).Select(value => (byte)value).ToArray(),
+        Enumerable.Range(32, 24).Select(value => (byte)value).ToArray(),
+        [1, 2, 3, 4],
+        Enumerable.Repeat((byte)7, 16).ToArray(),
+        Enumerable.Repeat((byte)9, 64).ToArray());
 
     private sealed class ServerFixture
     {

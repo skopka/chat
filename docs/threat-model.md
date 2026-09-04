@@ -56,7 +56,7 @@ erase existing copies or stop already authorized in-flight operations. Old queue
 updates retain grant IDs and cannot be revived by re-consent. See [bots](bots.md)
 and [ADR 0018](adr/0018-self-hosted-bots.md).
 
-Skopka.Chat v1 protects the contents and authenticity of one-to-one encrypted events sent between individually identified devices. Typed client content may represent text, replies, non-provenance forwards, reaction changes, content-v2 attachment manifests and content-v3 text/caption edits. Each device owns an X25519 encryption key and an Ed25519 signing key. Private keys remain on that device behind the `IDeviceKeyStore` abstraction. The server stores only public device data, routing metadata, ciphertext and delivery state; an optional attachment provider stores separately encrypted blobs.
+Skopka.Chat v1 protects the contents and authenticity of personal and bounded small-group encrypted events sent between individually identified devices. Typed client content may represent text, replies, non-provenance forwards, reaction changes, content-v2 attachment manifests, content-v3 text/caption edits and content-v4 structured mentions. Each device owns an X25519 encryption key and an Ed25519 signing key. Private keys remain on that device behind the `IDeviceKeyStore` abstraction. The server stores only public device data, routing/group metadata, ciphertext and delivery state; an optional attachment provider stores separately encrypted blobs.
 
 The assets are message/file plaintext, device and attachment keys, decrypted file metadata, message/file integrity, sender authenticity, and the user's ability to notice that a device key changed by comparing a fingerprint/security code out of band.
 
@@ -81,7 +81,7 @@ These properties do not make this implementation Signal-compatible or production
 
 ## Metadata visible to the server
 
-The server sees user, device, conversation, message, attachment and public-key identifiers; public encryption and signing keys; device registration/revocation times; sender/recipient/uploader identifiers; message/attachment creation, acceptance, expiry, delivery and acknowledgement times; protocol/content transport version; envelope and attachment ciphertext length/hash; ephemeral public key, nonce, authentication tag and signature; delivery frequency and IP/transport metadata supplied by the host.
+The server sees user, device, conversation, message, attachment and public-key identifiers; group titles, member IDs, roles, join times and metadata revisions; public encryption and signing keys; device registration/revocation times; sender/recipient/uploader identifiers; message/attachment creation, acceptance, expiry, delivery and acknowledgement times; protocol/content transport version; envelope and attachment ciphertext length/hash; ephemeral public key, nonce, authentication tag and signature; delivery frequency and IP/transport metadata supplied by the host.
 
 The server can therefore infer who communicates with whom, when, how often, from which devices, and approximate plaintext length. Padding is not implemented in v1.
 
@@ -99,7 +99,7 @@ The core supplies no filesystem key store. The optional bot endpoint package add
 
 ## Version 1 limitations and deferred work
 
-- One-to-one text, reply, forward-marker, reaction, attachment-manifest and text/caption edit events only; no message deletion, edit history UI or groups.
+- Personal and bounded small-group text, reply, forward-marker, reaction, attachment-manifest, text/caption edit and structured-mention events; no message deletion, edit history UI, MLS or large groups.
 - No Double Ratchet, forward secrecy guarantee, post-compromise security, deniability or Signal interoperability.
 - No attachment forwarding, resumable/multipart upload, HTTP range playback, thumbnails, automatic preview, push notifications, key backup/recovery or server federation.
 - The standard sender creates one exact durable envelope per active peer/sibling device. It does not provide key transparency, atomic server acceptance across all devices or automatic trust for a newly observed key.

@@ -56,11 +56,21 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         group.MapPost(SkopkaChatHttpRoutes.Conversations, CreateConversationAsync);
         group.MapPost(SkopkaChatHttpRoutes.PersonalConversation, GetOrCreateConversationAsync);
         group.MapGet(SkopkaChatHttpRoutes.Conversations, ListConversationsAsync);
+        var serviceProbe = endpoints.ServiceProvider.GetRequiredService<IServiceProviderIsService>();
+        if (serviceProbe.IsService(typeof(IGroupConversationRepository)))
+        {
+            group.MapPost(SkopkaChatHttpRoutes.GroupConversations, CreateGroupConversationAsync);
+            group.MapGet(SkopkaChatHttpRoutes.GroupConversations, ListGroupConversationsAsync);
+            group.MapGet($"{SkopkaChatHttpRoutes.GroupConversations}/{{conversationId:guid}}", GetGroupConversationAsync);
+            group.MapPut($"{SkopkaChatHttpRoutes.GroupConversations}/{{conversationId:guid}}", RenameGroupConversationAsync);
+            group.MapPost($"{SkopkaChatHttpRoutes.GroupConversations}/{{conversationId:guid}}/members", AddGroupMemberAsync);
+            group.MapDelete($"{SkopkaChatHttpRoutes.GroupConversations}/{{conversationId:guid}}/members/{{userId:guid}}", RemoveGroupMemberAsync);
+            group.MapPut($"{SkopkaChatHttpRoutes.GroupConversations}/{{conversationId:guid}}/members/{{userId:guid}}/role", ChangeGroupMemberRoleAsync);
+        }
         group.MapGet($"{SkopkaChatHttpRoutes.Conversations}/{{conversationId:guid}}/devices", ListConversationDevicesAsync);
         group.MapPost(SkopkaChatHttpRoutes.Envelopes, SubmitEnvelopeAsync);
         group.MapGet(SkopkaChatHttpRoutes.Deliveries, GetDeliveriesAsync);
         group.MapPost($"{SkopkaChatHttpRoutes.Deliveries}/{{messageId:guid}}/acknowledgements", AcknowledgeAsync);
-        var serviceProbe = endpoints.ServiceProvider.GetRequiredService<IServiceProviderIsService>();
         if (serviceProbe.IsService(typeof(AttachmentStorageService)))
         {
             group.MapPut($"{SkopkaChatHttpRoutes.Attachments}/{{attachmentId:guid}}", UploadAttachmentAsync)
@@ -499,14 +509,48 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         }
     }
 
-    private static async Task<IResult> ListConversationDevicesAsync(
-        Guid conversationId,
-        string? cursor,
-        int? take,
+    private static async Task<IResult> CreateGroupConversationAsync(
+        CreateGroupConversationRequest request,
         HttpContext context,
         IChatPrincipalMapper principalMapper,
         IDeviceRepository devices,
-        IConversationRepository conversations,
+        ChatServerEngine engine,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        try
+        {
+            var conversation = await engine.CreateGroupConversationAsync(
+                ownership.Value.Identity.UserId,
+                new ConversationId(request.ConversationId),
+                request.Title,
+                (request.MemberUserIds ?? []).Select(static userId => new UserId(userId)).ToArray(),
+                timeProvider.GetUtcNow(),
+                cancellationToken).ConfigureAwait(false);
+            return Results.Created(SkopkaChatHttpRoutes.GroupConversation(conversation.ConversationId.Value), ToResponse(conversation));
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+        catch (ChatServerException)
+        {
+            return ConflictProblem();
+        }
+    }
+
+    private static async Task<IResult> GetGroupConversationAsync(
+        Guid conversationId,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
         ChatServerEngine engine,
         CancellationToken cancellationToken)
     {
@@ -517,15 +561,172 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
             return Results.Forbid();
         }
 
-        var conversation = await conversations.GetAsync(
-            new ConversationId(conversationId),
-            cancellationToken).ConfigureAwait(false);
-        if (conversation is null)
+        try
+        {
+            var conversation = await engine.GetGroupConversationAsync(
+                ownership.Value.Identity.UserId,
+                new ConversationId(conversationId),
+                cancellationToken).ConfigureAwait(false);
+            return Results.Ok(ToResponse(conversation));
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+        catch (ChatServerException)
         {
             return Results.NotFound();
         }
+    }
 
-        if (!conversation.Contains(ownership.Value.Identity.UserId))
+    private static async Task<IResult> ListGroupConversationsAsync(
+        string? cursor,
+        int? take,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        if (!TryDecodeConversationCursor(cursor, out var decodedCursor))
+        {
+            return InvalidRequestProblem();
+        }
+
+        try
+        {
+            var page = await engine.ListGroupConversationsAsync(
+                ownership.Value.Identity.UserId,
+                decodedCursor,
+                take ?? 50,
+                cancellationToken).ConfigureAwait(false);
+            return Results.Ok(new GroupConversationDirectoryResponse(
+                page.Items.Select(ToResponse).ToArray(),
+                page.NextCursor is { } next ? EncodeConversationCursor(next) : null));
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+    }
+
+    private static async Task<IResult> RenameGroupConversationAsync(
+        Guid conversationId,
+        RenameGroupConversationRequest request,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        CancellationToken cancellationToken) =>
+        await MutateGroupAsync(context, principalMapper, devices, async ownership =>
+            await engine.RenameGroupConversationAsync(
+                ownership.UserId,
+                new ConversationId(conversationId),
+                request.Title,
+                request.ExpectedRevision,
+                cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+    private static async Task<IResult> AddGroupMemberAsync(
+        Guid conversationId,
+        AddGroupMemberRequest request,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken) =>
+        await MutateGroupAsync(context, principalMapper, devices, async ownership =>
+            await engine.AddGroupMemberAsync(
+                ownership.UserId,
+                new ConversationId(conversationId),
+                new UserId(request.UserId),
+                request.ExpectedRevision,
+                timeProvider.GetUtcNow(),
+                cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+    private static async Task<IResult> RemoveGroupMemberAsync(
+        Guid conversationId,
+        Guid userId,
+        long revision,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        CancellationToken cancellationToken) =>
+        await MutateGroupAsync(context, principalMapper, devices, async ownership =>
+            await engine.RemoveGroupMemberAsync(
+                ownership.UserId,
+                new ConversationId(conversationId),
+                new UserId(userId),
+                revision,
+                cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+    private static async Task<IResult> ChangeGroupMemberRoleAsync(
+        Guid conversationId,
+        Guid userId,
+        ChangeGroupMemberRoleRequest request,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        CancellationToken cancellationToken) =>
+        await MutateGroupAsync(context, principalMapper, devices, async ownership =>
+            await engine.ChangeGroupMemberRoleAsync(
+                ownership.UserId,
+                new ConversationId(conversationId),
+                new UserId(userId),
+                (GroupConversationRole)request.Role,
+                request.ExpectedRevision,
+                cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+
+    private static async Task<IResult> MutateGroupAsync(
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        Func<ChatRequestIdentity, ValueTask<GroupConversation>> mutation,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
+        {
+            return Results.Forbid();
+        }
+
+        try
+        {
+            return Results.Ok(ToResponse(await mutation(ownership.Value.Identity).ConfigureAwait(false)));
+        }
+        catch (ArgumentException)
+        {
+            return InvalidRequestProblem();
+        }
+        catch (ChatServerException)
+        {
+            return ConflictProblem();
+        }
+    }
+
+    private static async Task<IResult> ListConversationDevicesAsync(
+        Guid conversationId,
+        string? cursor,
+        int? take,
+        HttpContext context,
+        IChatPrincipalMapper principalMapper,
+        IDeviceRepository devices,
+        ChatServerEngine engine,
+        CancellationToken cancellationToken)
+    {
+        var ownership = await RequireActiveOwnedDeviceAsync(
+            context, principalMapper, devices, cancellationToken).ConfigureAwait(false);
+        if (ownership is null)
         {
             return Results.Forbid();
         }
@@ -539,7 +740,7 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         {
             var page = await engine.ListConversationDevicesAsync(
                 ownership.Value.Identity.UserId,
-                conversation.ConversationId,
+                new ConversationId(conversationId),
                 decodedCursor,
                 take ?? 50,
                 cancellationToken).ConfigureAwait(false);
@@ -724,6 +925,17 @@ public static class SkopkaChatEndpointRouteBuilderExtensions
         conversation.FirstUserId.Value,
         conversation.SecondUserId.Value,
         conversation.CreatedAt);
+
+    private static GroupConversationResponse ToResponse(GroupConversation conversation) => new(
+        conversation.ConversationId.Value,
+        conversation.Title,
+        conversation.CreatedByUserId.Value,
+        conversation.Revision,
+        conversation.CreatedAt,
+        conversation.Members.Select(static member => new GroupConversationMemberResponse(
+            member.UserId.Value,
+            (byte)member.Role,
+            member.JoinedAt)).ToArray());
 
     private static string EncodeConversationCursor(ConversationDirectoryCursor cursor)
     {

@@ -5,11 +5,12 @@ using Skopka.Chat.Protocol;
 namespace Skopka.Chat.Server;
 
 /// <summary>Thread-safe, non-persistent implementation for tests and the vertical-slice sample.</summary>
-public sealed partial class InMemoryServerStore : IDeviceRepository, IConversationRepository, IEnvelopeRepository
+public sealed partial class InMemoryServerStore : IDeviceRepository, IConversationRepository, IGroupConversationRepository, IEnvelopeRepository
 {
     private readonly ConcurrentDictionary<DeviceId, PublicDevice> _devices = new();
     private readonly ConcurrentDictionary<ConversationId, PersonalConversation> _conversations = new();
     private readonly ConcurrentDictionary<(UserId First, UserId Second), ConversationId> _conversationPairs = new();
+    private readonly ConcurrentDictionary<ConversationId, GroupConversation> _groupConversations = new();
     private readonly ConcurrentDictionary<MessageId, EnvelopeEntry> _envelopes = new();
     private readonly object _conversationGate = new();
 
@@ -86,6 +87,32 @@ public sealed partial class InMemoryServerStore : IDeviceRepository, IConversati
     }
 
     /// <inheritdoc />
+    ValueTask<DeviceDirectoryPage> IDeviceRepository.ListActiveForUsersAsync(
+        IReadOnlyCollection<UserId> userIds,
+        DeviceDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var users = userIds.ToHashSet();
+        var ordered = _devices.Values
+            .Where(item =>
+                !item.IsRevoked &&
+                users.Contains(item.UserId) &&
+                (!cursor.HasValue || CompareDevice(item, cursor.Value) > 0))
+            .OrderBy(item => item.UserId.Value)
+            .ThenBy(item => item.DeviceId.Value)
+            .Take(maximumCount + 1)
+            .ToArray();
+        var hasMore = ordered.Length > maximumCount;
+        var items = ordered.Take(maximumCount).ToArray();
+        DeviceDirectoryCursor? next = hasMore && items.Length > 0
+            ? new DeviceDirectoryCursor(items[^1].UserId, items[^1].DeviceId)
+            : null;
+        return ValueTask.FromResult(new DeviceDirectoryPage(items, next));
+    }
+
+    /// <inheritdoc />
     ValueTask<bool> IConversationRepository.TryAddAsync(PersonalConversation conversation, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -97,7 +124,8 @@ public sealed partial class InMemoryServerStore : IDeviceRepository, IConversati
         var pair = (canonical.FirstUserId, canonical.SecondUserId);
         lock (_conversationGate)
         {
-            if (_conversationPairs.ContainsKey(pair) || _conversations.ContainsKey(canonical.ConversationId))
+            if (_conversationPairs.ContainsKey(pair) || _conversations.ContainsKey(canonical.ConversationId) ||
+                _groupConversations.ContainsKey(canonical.ConversationId))
             {
                 return ValueTask.FromResult(false);
             }
@@ -160,6 +188,76 @@ public sealed partial class InMemoryServerStore : IDeviceRepository, IConversati
             ? new ConversationDirectoryCursor(items[^1].CreatedAt, items[^1].ConversationId)
             : null;
         return ValueTask.FromResult(new ConversationDirectoryPage(items, next));
+    }
+
+    /// <inheritdoc />
+    ValueTask<bool> IGroupConversationRepository.TryAddAsync(
+        GroupConversation conversation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_conversationGate)
+        {
+            if (_conversations.ContainsKey(conversation.ConversationId) ||
+                _groupConversations.ContainsKey(conversation.ConversationId))
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            return ValueTask.FromResult(_groupConversations.TryAdd(conversation.ConversationId, conversation));
+        }
+    }
+
+    /// <inheritdoc />
+    ValueTask<GroupConversation?> IGroupConversationRepository.GetAsync(
+        ConversationId conversationId,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(_groupConversations.GetValueOrDefault(conversationId));
+    }
+
+    /// <inheritdoc />
+    ValueTask<GroupConversationDirectoryPage> IGroupConversationRepository.ListForUserAsync(
+        UserId userId,
+        ConversationDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var ordered = _groupConversations.Values
+            .Where(item => item.Contains(userId) && (!cursor.HasValue || CompareConversation(item, cursor.Value) < 0))
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.ConversationId.Value)
+            .Take(maximumCount + 1)
+            .ToArray();
+        var hasMore = ordered.Length > maximumCount;
+        var items = ordered.Take(maximumCount).ToArray();
+        ConversationDirectoryCursor? next = hasMore && items.Length > 0
+            ? new ConversationDirectoryCursor(items[^1].CreatedAt, items[^1].ConversationId)
+            : null;
+        return ValueTask.FromResult(new GroupConversationDirectoryPage(items, next));
+    }
+
+    /// <inheritdoc />
+    ValueTask<GroupConversationStoreResult> IGroupConversationRepository.TryReplaceAsync(
+        GroupConversation conversation,
+        long expectedRevision,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_conversationGate)
+        {
+            if (!_groupConversations.TryGetValue(conversation.ConversationId, out var current) ||
+                current.Revision != expectedRevision ||
+                conversation.Revision != expectedRevision + 1)
+            {
+                return ValueTask.FromResult(GroupConversationStoreResult.Conflict);
+            }
+
+            _groupConversations[conversation.ConversationId] = conversation;
+            return ValueTask.FromResult(GroupConversationStoreResult.Updated);
+        }
     }
 
     /// <inheritdoc />
@@ -253,6 +351,14 @@ public sealed partial class InMemoryServerStore : IDeviceRepository, IConversati
     }
 
     private static int CompareConversation(PersonalConversation conversation, ConversationDirectoryCursor cursor)
+    {
+        var createdComparison = conversation.CreatedAt.CompareTo(cursor.CreatedAt);
+        return createdComparison != 0
+            ? createdComparison
+            : conversation.ConversationId.Value.CompareTo(cursor.ConversationId.Value);
+    }
+
+    private static int CompareConversation(GroupConversation conversation, ConversationDirectoryCursor cursor)
     {
         var createdComparison = conversation.CreatedAt.CompareTo(cursor.CreatedAt);
         return createdComparison != 0

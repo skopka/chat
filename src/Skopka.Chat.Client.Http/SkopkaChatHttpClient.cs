@@ -17,6 +17,7 @@ public sealed partial class SkopkaChatHttpClient :
     IChatTransport,
     IEncryptedAttachmentUploader,
     IChatConversationDirectory,
+    IChatGroupConversationDirectory,
     IRecipientDeviceDirectory
 {
     private readonly HttpClient _httpClient;
@@ -207,6 +208,186 @@ public sealed partial class SkopkaChatHttpClient :
         }
 
         return new ChatConversationPage(result, page.NextCursor);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChatGroupConversationInfo> CreateGroupConversationAsync(
+        ConversationId conversationId,
+        string title,
+        IReadOnlyCollection<UserId> memberUserIds,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(conversationId.Value, nameof(conversationId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentNullException.ThrowIfNull(memberUserIds);
+        var memberIds = memberUserIds.Select(static userId => userId.Value).Distinct().ToArray();
+        if (memberIds.Length is < 1 or > 63 || memberIds.Any(static userId => userId == Guid.Empty))
+        {
+            throw new ArgumentException("Group members are invalid.", nameof(memberUserIds));
+        }
+
+        var payload = new CreateGroupConversationRequest(conversationId.Value, title, memberIds);
+        using var response = await SendWithRetryAsync(
+            () => CreateJsonRequest(
+                HttpMethod.Post,
+                SkopkaChatHttpRoutes.GroupConversations,
+                payload,
+                SkopkaChatHttpJsonContext.Default.CreateGroupConversationRequest),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        var result = ToGroupConversationInfo(await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.GroupConversationResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false));
+        if (result.ConversationId != conversationId || result.CreatedByUserId != _authenticatedUserId ||
+            result.FindMember(_authenticatedUserId) is null)
+        {
+            throw InvalidResponse();
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChatGroupConversationInfo> GetGroupConversationAsync(
+        ConversationId conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(conversationId.Value, nameof(conversationId));
+        using var response = await SendWithRetryAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, BuildUri(SkopkaChatHttpRoutes.GroupConversation(conversationId.Value))),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        var result = ToGroupConversationInfo(await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.GroupConversationResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false));
+        if (result.ConversationId != conversationId || result.FindMember(_authenticatedUserId) is null)
+        {
+            throw InvalidResponse();
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChatGroupConversationPage> ListGroupConversationsAsync(
+        string? cursor = null,
+        int maximumCount = 50,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateDirectoryRequest(cursor, maximumCount);
+        using var response = await SendWithRetryAsync(
+            () => new HttpRequestMessage(
+                HttpMethod.Get,
+                BuildUri(BuildPagedRoute(SkopkaChatHttpRoutes.GroupConversations, cursor, maximumCount))),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        var page = await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.GroupConversationDirectoryResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false);
+        if (page.Items is null || page.Items.Length > maximumCount || !IsValidCursor(page.NextCursor))
+        {
+            throw InvalidResponse();
+        }
+
+        var seen = new HashSet<ConversationId>();
+        var result = page.Items.Select(item =>
+        {
+            var conversation = ToGroupConversationInfo(item ?? throw InvalidResponse());
+            if (!seen.Add(conversation.ConversationId) || conversation.FindMember(_authenticatedUserId) is null)
+            {
+                throw InvalidResponse();
+            }
+
+            return conversation;
+        }).ToArray();
+        return new ChatGroupConversationPage(result, page.NextCursor);
+    }
+
+    /// <inheritdoc />
+    public ValueTask<ChatGroupConversationInfo> RenameGroupConversationAsync(
+        ConversationId conversationId,
+        string title,
+        long expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        return MutateGroupAsync(
+            conversationId,
+            HttpMethod.Put,
+            SkopkaChatHttpRoutes.GroupConversation(conversationId.Value),
+            new RenameGroupConversationRequest(title, expectedRevision),
+            SkopkaChatHttpJsonContext.Default.RenameGroupConversationRequest,
+            expectedRevision,
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public ValueTask<ChatGroupConversationInfo> AddGroupMemberAsync(
+        ConversationId conversationId,
+        UserId userId,
+        long expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(userId.Value, nameof(userId));
+        return MutateGroupAsync(
+            conversationId,
+            HttpMethod.Post,
+            SkopkaChatHttpRoutes.GroupMembers(conversationId.Value),
+            new AddGroupMemberRequest(userId.Value, expectedRevision),
+            SkopkaChatHttpJsonContext.Default.AddGroupMemberRequest,
+            expectedRevision,
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChatGroupConversationInfo> RemoveGroupMemberAsync(
+        ConversationId conversationId,
+        UserId userId,
+        long expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateGroupMutation(conversationId, expectedRevision);
+        RequireId(userId.Value, nameof(userId));
+        var route = $"{SkopkaChatHttpRoutes.GroupMember(conversationId.Value, userId.Value)}?revision={expectedRevision}";
+        using var response = await SendWithRetryAsync(
+            () => new HttpRequestMessage(HttpMethod.Delete, BuildUri(route)),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        return ValidateGroupMutationResponse(conversationId, expectedRevision, await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.GroupConversationResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <inheritdoc />
+    public ValueTask<ChatGroupConversationInfo> ChangeGroupMemberRoleAsync(
+        ConversationId conversationId,
+        UserId userId,
+        ChatGroupRole role,
+        long expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(userId.Value, nameof(userId));
+        if (role is not ChatGroupRole.Member and not ChatGroupRole.Administrator)
+        {
+            throw new ArgumentOutOfRangeException(nameof(role));
+        }
+
+        return MutateGroupAsync(
+            conversationId,
+            HttpMethod.Put,
+            SkopkaChatHttpRoutes.GroupMemberRole(conversationId.Value, userId.Value),
+            new ChangeGroupMemberRoleRequest((byte)role, expectedRevision),
+            SkopkaChatHttpJsonContext.Default.ChangeGroupMemberRoleRequest,
+            expectedRevision,
+            cancellationToken);
     }
 
     /// <inheritdoc />
@@ -512,6 +693,47 @@ public sealed partial class SkopkaChatHttpClient :
         return response.StatusCode == HttpStatusCode.NoContent ? true : throw InvalidResponse();
     }
 
+    private async ValueTask<ChatGroupConversationInfo> MutateGroupAsync<TRequest>(
+        ConversationId conversationId,
+        HttpMethod method,
+        string route,
+        TRequest payload,
+        JsonTypeInfo<TRequest> typeInfo,
+        long expectedRevision,
+        CancellationToken cancellationToken)
+    {
+        ValidateGroupMutation(conversationId, expectedRevision);
+        using var response = await SendWithRetryAsync(
+            () => CreateJsonRequest(method, route, payload, typeInfo),
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response);
+        return ValidateGroupMutationResponse(conversationId, expectedRevision, await ReadJsonAsync(
+            response,
+            SkopkaChatHttpJsonContext.Default.GroupConversationResponse,
+            SkopkaChatHttpLimits.MaxControlResponseBytes,
+            cancellationToken).ConfigureAwait(false));
+    }
+
+    private static void ValidateGroupMutation(ConversationId conversationId, long expectedRevision)
+    {
+        RequireId(conversationId.Value, nameof(conversationId));
+        ArgumentOutOfRangeException.ThrowIfLessThan(expectedRevision, 1);
+    }
+
+    private static ChatGroupConversationInfo ValidateGroupMutationResponse(
+        ConversationId conversationId,
+        long expectedRevision,
+        GroupConversationResponse response)
+    {
+        var result = ToGroupConversationInfo(response);
+        if (result.ConversationId != conversationId || result.Revision != checked(expectedRevision + 1))
+        {
+            throw InvalidResponse();
+        }
+
+        return result;
+    }
+
     private async Task<HttpResponseMessage> SendOnceAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -814,6 +1036,44 @@ public sealed partial class SkopkaChatHttpClient :
             new UserId(response.FirstUserId),
             new UserId(response.SecondUserId),
             response.CreatedAt);
+    }
+
+    private static ChatGroupConversationInfo ToGroupConversationInfo(GroupConversationResponse response)
+    {
+        if (response is null || response.ConversationId == Guid.Empty ||
+            response.CreatedByUserId == Guid.Empty || string.IsNullOrWhiteSpace(response.Title) ||
+            response.Revision < 1 || response.CreatedAt == default ||
+            response.Members is null || response.Members.Length is < 1 or > 64)
+        {
+            throw InvalidResponse();
+        }
+
+        try
+        {
+            return new ChatGroupConversationInfo(
+                new ConversationId(response.ConversationId),
+                response.Title,
+                new UserId(response.CreatedByUserId),
+                response.Revision,
+                response.CreatedAt,
+                response.Members.Select(member =>
+                {
+                    if (member is null || member.UserId == Guid.Empty || member.JoinedAt == default ||
+                        member.Role is < (byte)ChatGroupRole.Member or > (byte)ChatGroupRole.Owner)
+                    {
+                        throw InvalidResponse();
+                    }
+
+                    return new ChatGroupMemberInfo(
+                        new UserId(member.UserId),
+                        (ChatGroupRole)member.Role,
+                        member.JoinedAt);
+                }).ToArray());
+        }
+        catch (ArgumentException)
+        {
+            throw InvalidResponse();
+        }
     }
 
     private static string BuildPagedRoute(string route, string? cursor, int maximumCount) =>

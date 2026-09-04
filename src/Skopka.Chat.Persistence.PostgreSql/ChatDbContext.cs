@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Skopka.Chat.Protocol;
+using Skopka.Chat.Server;
 
 namespace Skopka.Chat.Persistence.PostgreSql;
 
@@ -14,6 +15,8 @@ public sealed class ChatDbContext : DbContext
     internal DbSet<DeviceEntity> Devices => Set<DeviceEntity>();
 
     internal DbSet<ConversationEntity> Conversations => Set<ConversationEntity>();
+
+    internal DbSet<GroupConversationMemberEntity> GroupConversationMembers => Set<GroupConversationMemberEntity>();
 
     internal DbSet<EnvelopeEntity> Envelopes => Set<EnvelopeEntity>();
     internal DbSet<DeviceChallengeEntity> DeviceChallenges => Set<DeviceChallengeEntity>();
@@ -87,15 +90,39 @@ public sealed class ChatDbContext : DbContext
         modelBuilder.Entity<ConversationEntity>(entity =>
         {
             entity.ToTable("conversations", table =>
-                table.HasCheckConstraint("ck_conversations_distinct_users", "first_user_id <> second_user_id"));
+            {
+                table.HasCheckConstraint("ck_conversations_shape",
+                    "(conversation_kind = 1 AND first_user_id IS NOT NULL AND second_user_id IS NOT NULL AND first_user_id <> second_user_id AND title IS NULL AND created_by_user_id IS NULL AND revision IS NULL) OR " +
+                    "(conversation_kind = 2 AND first_user_id IS NULL AND second_user_id IS NULL AND title IS NOT NULL AND octet_length(title) BETWEEN 1 AND 256 AND created_by_user_id IS NOT NULL AND revision >= 1)");
+            });
             entity.HasKey(item => item.ConversationId).HasName("pk_conversations");
             entity.Property(item => item.ConversationId).HasColumnName("conversation_id").ValueGeneratedNever();
+            entity.Property(item => item.ConversationKind).HasColumnName("conversation_kind");
             entity.Property(item => item.FirstUserId).HasColumnName("first_user_id");
             entity.Property(item => item.SecondUserId).HasColumnName("second_user_id");
+            entity.Property(item => item.Title).HasColumnName("title").HasMaxLength(GroupConversationLimits.MaxTitleUtf8Bytes);
+            entity.Property(item => item.CreatedByUserId).HasColumnName("created_by_user_id");
+            entity.Property(item => item.Revision).HasColumnName("revision");
             entity.Property(item => item.CreatedAt).HasColumnName("created_at");
             entity.HasIndex(item => new { item.FirstUserId, item.SecondUserId })
                 .IsUnique()
+                .HasFilter("conversation_kind = 1")
                 .HasDatabaseName("ux_conversations_users");
+        });
+
+        modelBuilder.Entity<GroupConversationMemberEntity>(entity =>
+        {
+            entity.ToTable("group_conversation_members", table =>
+                table.HasCheckConstraint("ck_group_members_role", "role BETWEEN 1 AND 3"));
+            entity.HasKey(item => new { item.ConversationId, item.UserId }).HasName("pk_group_conversation_members");
+            entity.Property(item => item.ConversationId).HasColumnName("conversation_id");
+            entity.Property(item => item.UserId).HasColumnName("user_id");
+            entity.Property(item => item.Role).HasColumnName("role");
+            entity.Property(item => item.JoinedAt).HasColumnName("joined_at");
+            entity.HasOne<ConversationEntity>().WithMany().HasForeignKey(item => item.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade).HasConstraintName("fk_group_members_conversation");
+            entity.HasIndex(item => new { item.UserId, item.ConversationId })
+                .HasDatabaseName("ix_group_members_user_conversation");
         });
 
         modelBuilder.Entity<EnvelopeEntity>(entity =>

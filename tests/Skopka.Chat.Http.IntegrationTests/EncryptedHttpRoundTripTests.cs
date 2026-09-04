@@ -83,6 +83,74 @@ public sealed class EncryptedHttpRoundTripTests
     }
 
     [Fact]
+    public async Task Group_http_round_trip_encrypts_mentions_for_each_current_member_device()
+    {
+        var aliceKeys = new InMemoryDeviceKeyStore();
+        var bobKeys = new InMemoryDeviceKeyStore();
+        var charlieKeys = new InMemoryDeviceKeyStore();
+        var alice = await new DeviceIdentityService(aliceKeys).CreateAsync(UserId.New(), DeviceId.New(), Now);
+        var bob = await new DeviceIdentityService(bobKeys).CreateAsync(UserId.New(), DeviceId.New(), Now);
+        var charlie = await new DeviceIdentityService(charlieKeys).CreateAsync(UserId.New(), DeviceId.New(), Now);
+        var tokens = new TestTokenRegistry();
+        tokens.Add("group-alice", alice.UserId, alice.DeviceId);
+        tokens.Add("group-bob", bob.UserId, bob.DeviceId);
+        tokens.Add("group-charlie", charlie.UserId, charlie.DeviceId);
+        await using var application = await CreateApplicationAsync(tokens);
+        using var aliceHttp = application.GetTestClient();
+        using var bobHttp = application.GetTestClient();
+        using var charlieHttp = application.GetTestClient();
+        var aliceApi = CreateClient(aliceHttp, alice, "group-alice");
+        var bobApi = CreateClient(bobHttp, bob, "group-bob");
+        var charlieApi = CreateClient(charlieHttp, charlie, "group-charlie");
+        await aliceApi.RegisterDeviceAsync(alice);
+        await bobApi.RegisterDeviceAsync(bob);
+        await charlieApi.RegisterDeviceAsync(charlie);
+        var group = await aliceApi.CreateGroupConversationAsync(
+            ConversationId.New(),
+            "E2EE team",
+            [bob.UserId, charlie.UserId]);
+        var sender = new ChatMultiDeviceSender(
+            alice.UserId,
+            alice.DeviceId,
+            new ChatCryptoService(aliceKeys),
+            aliceApi,
+            aliceApi,
+            new InMemoryChatFanOutPlanStore(),
+            new FixedTimeProvider(Now));
+        var content = new ChatTextContent(
+            ChatContentId.New(),
+            "@all encrypted marker 18A2",
+            mentions: [ChatMention.Everyone]);
+
+        var sent = await sender.SendAsync(group.ConversationId, content);
+        Assert.True(sent.Succeeded);
+        Assert.Equal(2, sent.RequiredCount);
+        var bobDelivery = Assert.Single(await bobApi.ReceiveAsync(bob.DeviceId, 10));
+        var charlieDelivery = Assert.Single(await charlieApi.ReceiveAsync(charlie.DeviceId, 10));
+        var forBob = Assert.IsType<ChatTextContent>(
+            await new ChatCryptoService(bobKeys).DecryptContentAsync(bobDelivery.Envelope, alice));
+        var forCharlie = Assert.IsType<ChatTextContent>(
+            await new ChatCryptoService(charlieKeys).DecryptContentAsync(charlieDelivery.Envelope, alice));
+        Assert.Equal(content.ContentId, forBob.ContentId);
+        Assert.Equal(content.ContentId, forCharlie.ContentId);
+        var bobGroup = await bobApi.GetGroupConversationAsync(group.ConversationId);
+        Assert.True(bobGroup.IsEffectivelyMentioned(forBob, alice.UserId, bob.UserId));
+        await bobApi.AcknowledgeAsync(bob.DeviceId, bobDelivery.Envelope.MessageId, Now);
+        await charlieApi.AcknowledgeAsync(charlie.DeviceId, charlieDelivery.Envelope.MessageId, Now);
+
+        group = await aliceApi.RemoveGroupMemberAsync(
+            group.ConversationId,
+            charlie.UserId,
+            group.Revision);
+        var afterRemoval = await sender.SendAsync(
+            group.ConversationId,
+            new ChatTextContent(ChatContentId.New(), "future only"));
+        Assert.True(afterRemoval.Succeeded);
+        Assert.Equal(1, afterRemoval.RequiredCount);
+        Assert.Empty(await charlieApi.ReceiveAsync(charlie.DeviceId, 10));
+    }
+
+    [Fact]
     public async Task Alice_to_http_to_PostgreSql_to_Bob_preserves_e2ee()
     {
         var connectionString = await GetPostgreSqlConnectionStringOrSkipAsync();
@@ -183,6 +251,7 @@ public sealed class EncryptedHttpRoundTripTests
             builder.Services.AddSingleton(store);
             builder.Services.AddSingleton<IDeviceRepository>(store);
             builder.Services.AddSingleton<IConversationRepository>(store);
+            builder.Services.AddSingleton<IGroupConversationRepository>(store);
             builder.Services.AddSingleton<IEnvelopeRepository>(store);
         }
         else
@@ -192,6 +261,8 @@ public sealed class EncryptedHttpRoundTripTests
             builder.Services.AddScoped<IDeviceRepository>(services =>
                 services.GetRequiredService<PostgreSqlChatStore>());
             builder.Services.AddScoped<IConversationRepository>(services =>
+                services.GetRequiredService<PostgreSqlChatStore>());
+            builder.Services.AddScoped<IGroupConversationRepository>(services =>
                 services.GetRequiredService<PostgreSqlChatStore>());
             builder.Services.AddScoped<IEnvelopeRepository>(services =>
                 services.GetRequiredService<PostgreSqlChatStore>());

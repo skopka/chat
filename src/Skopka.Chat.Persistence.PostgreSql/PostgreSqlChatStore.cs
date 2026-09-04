@@ -7,7 +7,7 @@ using Skopka.Chat.Server;
 namespace Skopka.Chat.Persistence.PostgreSql;
 
 /// <summary>EF Core/PostgreSQL implementation of every transport-neutral server repository.</summary>
-public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationRepository, IEnvelopeRepository
+public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationRepository, IGroupConversationRepository, IEnvelopeRepository
 {
     private readonly ChatDbContext _context;
 
@@ -78,6 +78,37 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
     }
 
     /// <inheritdoc />
+    async ValueTask<DeviceDirectoryPage> IDeviceRepository.ListActiveForUsersAsync(
+        IReadOnlyCollection<UserId> userIds,
+        DeviceDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        var users = userIds.Select(static userId => userId.Value).Distinct().ToArray();
+        var query = _context.Devices.AsNoTracking()
+            .Where(item => item.RevokedAt == null && users.Contains(item.UserId));
+        if (cursor is { } after)
+        {
+            query = query.Where(item =>
+                item.UserId.CompareTo(after.UserId.Value) > 0 ||
+                (item.UserId == after.UserId.Value && item.DeviceId.CompareTo(after.DeviceId.Value) > 0));
+        }
+
+        var entities = await query
+            .OrderBy(item => item.UserId)
+            .ThenBy(item => item.DeviceId)
+            .Take(maximumCount + 1)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var hasMore = entities.Count > maximumCount;
+        var items = entities.Take(maximumCount).Select(item => item.ToDomain()).ToArray();
+        DeviceDirectoryCursor? next = hasMore && items.Length > 0
+            ? new DeviceDirectoryCursor(items[^1].UserId, items[^1].DeviceId)
+            : null;
+        return new DeviceDirectoryPage(items, next);
+    }
+
+    /// <inheritdoc />
     async ValueTask<bool> IConversationRepository.TryAddAsync(
         PersonalConversation conversation,
         CancellationToken cancellationToken)
@@ -97,7 +128,10 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
         CancellationToken cancellationToken)
     {
         var entity = await _context.Conversations.AsNoTracking()
-            .SingleOrDefaultAsync(item => item.ConversationId == conversationId.Value, cancellationToken)
+            .SingleOrDefaultAsync(item =>
+                item.ConversationId == conversationId.Value &&
+                item.ConversationKind == ConversationEntity.PersonalKind,
+                cancellationToken)
             .ConfigureAwait(false);
         return entity?.ToDomain();
     }
@@ -116,6 +150,7 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
         var entity = await _context.Conversations.AsNoTracking()
             .SingleOrDefaultAsync(
                 item =>
+                    item.ConversationKind == ConversationEntity.PersonalKind &&
                     item.FirstUserId == canonical.FirstUserId.Value &&
                     item.SecondUserId == canonical.SecondUserId.Value,
                 cancellationToken)
@@ -131,7 +166,9 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
         CancellationToken cancellationToken)
     {
         var query = _context.Conversations.AsNoTracking()
-            .Where(item => item.FirstUserId == userId.Value || item.SecondUserId == userId.Value);
+            .Where(item =>
+                item.ConversationKind == ConversationEntity.PersonalKind &&
+                (item.FirstUserId == userId.Value || item.SecondUserId == userId.Value));
         if (cursor is { } before)
         {
             query = query.Where(item =>
@@ -152,6 +189,136 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
             ? new ConversationDirectoryCursor(items[^1].CreatedAt, items[^1].ConversationId)
             : null;
         return new ConversationDirectoryPage(items, next);
+    }
+
+    /// <inheritdoc />
+    async ValueTask<bool> IGroupConversationRepository.TryAddAsync(
+        GroupConversation conversation,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        _context.Conversations.Add(ConversationEntity.FromDomain(conversation));
+        _context.GroupConversationMembers.AddRange(conversation.Members.Select(member =>
+            GroupConversationMemberEntity.FromDomain(conversation.ConversationId, member)));
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            _context.ChangeTracker.Clear();
+            return true;
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            _context.ChangeTracker.Clear();
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    async ValueTask<GroupConversation?> IGroupConversationRepository.GetAsync(
+        ConversationId conversationId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await _context.Conversations.AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.ConversationId == conversationId.Value &&
+                item.ConversationKind == ConversationEntity.GroupKind,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (entity is null)
+        {
+            return null;
+        }
+
+        var members = await _context.GroupConversationMembers.AsNoTracking()
+            .Where(item => item.ConversationId == conversationId.Value)
+            .OrderBy(item => item.UserId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return entity.ToGroupDomain(members.Select(static member => member.ToDomain()).ToArray());
+    }
+
+    /// <inheritdoc />
+    async ValueTask<GroupConversationDirectoryPage> IGroupConversationRepository.ListForUserAsync(
+        UserId userId,
+        ConversationDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        var query =
+            from conversation in _context.Conversations.AsNoTracking()
+            join member in _context.GroupConversationMembers.AsNoTracking()
+                on conversation.ConversationId equals member.ConversationId
+            where conversation.ConversationKind == ConversationEntity.GroupKind && member.UserId == userId.Value
+            select conversation;
+        if (cursor is { } before)
+        {
+            query = query.Where(item =>
+                item.CreatedAt < before.CreatedAt ||
+                (item.CreatedAt == before.CreatedAt &&
+                    item.ConversationId.CompareTo(before.ConversationId.Value) < 0));
+        }
+
+        var entities = await query
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.ConversationId)
+            .Take(maximumCount + 1)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var hasMore = entities.Count > maximumCount;
+        var pageEntities = entities.Take(maximumCount).ToArray();
+        var conversationIds = pageEntities.Select(static item => item.ConversationId).ToArray();
+        var memberEntities = await _context.GroupConversationMembers.AsNoTracking()
+            .Where(item => conversationIds.Contains(item.ConversationId))
+            .OrderBy(item => item.UserId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var membersByConversation = memberEntities
+            .GroupBy(static item => item.ConversationId)
+            .ToDictionary(
+                static group => group.Key,
+                static group => (IReadOnlyCollection<GroupConversationMember>)group.Select(member => member.ToDomain()).ToArray());
+        var items = pageEntities.Select(entity => entity.ToGroupDomain(membersByConversation[entity.ConversationId])).ToArray();
+        ConversationDirectoryCursor? next = hasMore && items.Length > 0
+            ? new ConversationDirectoryCursor(items[^1].CreatedAt, items[^1].ConversationId)
+            : null;
+        return new GroupConversationDirectoryPage(items, next);
+    }
+
+    /// <inheritdoc />
+    async ValueTask<GroupConversationStoreResult> IGroupConversationRepository.TryReplaceAsync(
+        GroupConversation conversation,
+        long expectedRevision,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var affected = await _context.Conversations
+            .Where(item =>
+                item.ConversationId == conversation.ConversationId.Value &&
+                item.ConversationKind == ConversationEntity.GroupKind &&
+                item.Revision == expectedRevision)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.Title, conversation.Title)
+                .SetProperty(item => item.Revision, conversation.Revision), cancellationToken)
+            .ConfigureAwait(false);
+        if (affected != 1)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return GroupConversationStoreResult.Conflict;
+        }
+
+        await _context.GroupConversationMembers
+            .Where(item => item.ConversationId == conversation.ConversationId.Value)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        _context.ChangeTracker.Clear();
+        _context.GroupConversationMembers.AddRange(conversation.Members.Select(member =>
+            GroupConversationMemberEntity.FromDomain(conversation.ConversationId, member)));
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        _context.ChangeTracker.Clear();
+        return GroupConversationStoreResult.Updated;
     }
 
     /// <inheritdoc />
@@ -227,11 +394,13 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
             await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return true;
         }
-        catch (DbUpdateException exception) when (
-            exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
             _context.ChangeTracker.Clear();
             return false;
         }
     }
+
+    private static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 }

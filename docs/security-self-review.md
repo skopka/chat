@@ -1,5 +1,22 @@
 # Security-boundary self-review
 
+## Small-group and encrypted-mention review (0.18.0)
+
+- Group title/member/role/revision metadata is explicitly server-visible; private
+  keys, text and structured mention targets remain client-only plaintext.
+- PostgreSQL expected-revision update and active-member replacement are one
+  transaction. Submission checks current sender and recipient membership before
+  ciphertext persistence; removal cannot retract already accepted/delivered data.
+- Fan-out accepts multiple participant users but still requires the current device,
+  distinct active devices, bounded pages and a durable exact-ciphertext plan.
+- Content-v4 has a distinct discriminator, canonical unique target order, a golden
+  vector and fuzz seed. Content-v1 bytes remain unchanged when mentions are absent.
+- Recipients ignore unauthorized `@all` semantics using authenticated sender identity
+  plus current group role. The server cannot inspect or enforce encrypted mention intent.
+- This is not MLS or a membership-transcript protocol. A malicious server can still
+  alter routing metadata/public-key directory results; key-change UX and independent
+  review remain production prerequisites. See [ADR 0021](adr/0021-small-groups-and-encrypted-mentions.md).
+
 ## Backup-v1 review (0.16.0)
 
 - Separate CSPRNG recovery secret, checksummed user input, purpose/context HKDF and

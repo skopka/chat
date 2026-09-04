@@ -154,6 +154,21 @@ internal static class ChatFuzzTarget
                 case 24:
                     _ = ChatBackupEventEncoding.Encode(ChatBackupEventEncoding.Decode(DecodeContentSeed(json)));
                     break;
+                case 25:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.CreateGroupConversationRequest);
+                    break;
+                case 26:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.GroupConversationResponse);
+                    break;
+                case 27:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.GroupConversationDirectoryResponse);
+                    break;
+                case 28:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.AddGroupMemberRequest);
+                    break;
+                case 29:
+                    RoundTrip(json, SkopkaChatHttpJsonContext.Default.ChangeGroupMemberRoleRequest);
+                    break;
                 default:
                     RoundTrip(json, BotIdentityJson.Default.MetadataRecord);
                     break;
@@ -210,13 +225,13 @@ internal static class ChatFuzzTarget
                 value = (value * 10) + input[index] - (byte)'0';
             }
 
-            if (value is >= 0 and <= 24)
+            if (value is >= 0 and <= 29)
             {
                 return (byte)value;
             }
         }
 
-        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 25);
+        return input.IsEmpty ? (byte)0 : (byte)(input[0] % 30);
     }
 
     private static byte[] DecodeContentSeed(ReadOnlySpan<byte> value)

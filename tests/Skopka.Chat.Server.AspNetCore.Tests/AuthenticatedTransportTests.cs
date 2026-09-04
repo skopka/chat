@@ -252,6 +252,80 @@ public sealed class AuthenticatedTransportTests
     }
 
     [Fact]
+    public async Task Group_routes_enforce_roles_revision_and_current_membership()
+    {
+        await using var application = await CreateApplicationAsync();
+        using var client = application.GetTestClient();
+        var alice = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var bob = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var charlie = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var mallory = new TestIdentity(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await RegisterAsync(client, alice);
+        await RegisterAsync(client, bob);
+        await RegisterAsync(client, charlie);
+        await RegisterAsync(client, mallory);
+        var conversationId = Guid.NewGuid();
+
+        using var create = await SendJsonAsync(
+            client,
+            HttpMethod.Post,
+            "/skopka-chat/v1/conversations/groups",
+            alice,
+            new CreateGroupConversationRequest(conversationId, "Team", [bob.UserId, charlie.UserId]));
+        var group = await create.Content.ReadFromJsonAsync<GroupConversationResponse>();
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        Assert.Equal(1, group!.Revision);
+        Assert.Equal(3, group.Members.Length);
+
+        using var forbiddenAdd = await SendJsonAsync(
+            client,
+            HttpMethod.Post,
+            $"/skopka-chat/v1/conversations/groups/{conversationId:D}/members",
+            bob,
+            new AddGroupMemberRequest(mallory.UserId, group.Revision));
+        Assert.Equal(HttpStatusCode.Conflict, forbiddenAdd.StatusCode);
+
+        using var promote = await SendJsonAsync(
+            client,
+            HttpMethod.Put,
+            $"/skopka-chat/v1/conversations/groups/{conversationId:D}/members/{bob.UserId:D}/role",
+            alice,
+            new ChangeGroupMemberRoleRequest((byte)GroupConversationRole.Administrator, group.Revision));
+        group = await promote.Content.ReadFromJsonAsync<GroupConversationResponse>();
+        Assert.Equal(HttpStatusCode.OK, promote.StatusCode);
+        Assert.Equal(2, group!.Revision);
+
+        using var remove = AuthorizedRequest(
+            HttpMethod.Delete,
+            $"/skopka-chat/v1/conversations/groups/{conversationId:D}/members/{charlie.UserId:D}?revision={group.Revision}",
+            bob.UserId,
+            bob.DeviceId);
+        using var removeResponse = await client.SendAsync(remove);
+        group = await removeResponse.Content.ReadFromJsonAsync<GroupConversationResponse>();
+        Assert.Equal(HttpStatusCode.OK, removeResponse.StatusCode);
+        Assert.Equal(3, group!.Revision);
+        Assert.DoesNotContain(group.Members, member => member.UserId == charlie.UserId);
+
+        using var removedDirectory = AuthorizedRequest(
+            HttpMethod.Get,
+            $"/skopka-chat/v1/conversations/{conversationId:D}/devices",
+            charlie.UserId,
+            charlie.DeviceId);
+        using var removedDirectoryResponse = await client.SendAsync(removedDirectory);
+        Assert.Equal(HttpStatusCode.Forbidden, removedDirectoryResponse.StatusCode);
+
+        using var list = AuthorizedRequest(
+            HttpMethod.Get,
+            "/skopka-chat/v1/conversations/groups?take=10",
+            bob.UserId,
+            bob.DeviceId);
+        using var listResponse = await client.SendAsync(list);
+        var page = await listResponse.Content.ReadFromJsonAsync<GroupConversationDirectoryResponse>();
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        Assert.Equal(conversationId, Assert.Single(page!.Items).ConversationId);
+    }
+
+    [Fact]
     public async Task Oversized_ciphertext_is_rejected_without_persistence()
     {
         await using var application = await CreateApplicationAsync();
@@ -446,6 +520,7 @@ public sealed class AuthenticatedTransportTests
         builder.Services.AddSingleton(store);
         builder.Services.AddSingleton<IDeviceRepository>(store);
         builder.Services.AddSingleton<IConversationRepository>(store);
+        builder.Services.AddSingleton<IGroupConversationRepository>(store);
         builder.Services.AddSingleton<IEnvelopeRepository>(store);
         builder.Services.AddSingleton<ChatServerEngine>();
         builder.Services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));

@@ -26,6 +26,23 @@ public interface IDeviceRepository
         int maximumCount,
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("The device directory repository capability is not configured.");
+
+    /// <summary>Lists active devices for an authorized bounded participant set.</summary>
+    ValueTask<DeviceDirectoryPage> ListActiveForUsersAsync(
+        IReadOnlyCollection<UserId> userIds,
+        DeviceDirectoryCursor? cursor,
+        int maximumCount,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(userIds);
+        if (userIds.Count == 2)
+        {
+            var pair = userIds.ToArray();
+            return ListActiveForParticipantsAsync(pair[0], pair[1], cursor, maximumCount, cancellationToken);
+        }
+
+        throw new NotSupportedException("The group device directory repository capability is not configured.");
+    }
 }
 
 /// <summary>Personal-conversation persistence boundary.</summary>

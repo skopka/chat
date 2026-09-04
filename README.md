@@ -1,10 +1,20 @@
 # Skopka.Chat
 
-Skopka.Chat — переиспользуемый транспорт-независимый движок личного чата для .NET 10. Сервер регистрирует публичные данные устройств, хранит и доставляет зашифрованные конверты, но не получает закрытые ключи и не имеет API расшифровки.
+Skopka.Chat — переиспользуемый транспорт-независимый движок личного и малого группового чата для .NET 10. Сервер регистрирует публичные данные устройств, хранит и доставляет зашифрованные конверты, но не получает закрытые ключи и не имеет API расшифровки.
 
 > **Security status:** это ограниченный E2EE MVP, а не реализация Signal и не прошедший аудит production-протокол. В v1 нет Double Ratchet, forward secrecy относительно компрометации долгосрочного ключа получателя и post-compromise security. Перед использованием прочитайте [threat model](docs/threat-model.md), [ADR по криптографии](docs/adr/0001-e2ee-cryptography.md) и [ограничения MVP](docs/mvp-limitations.md).
 
 ## Пакеты
+
+Версия `0.18.0` добавляет малые групповые диалоги до 64 участников, роли
+владельца/администратора/участника, атомарную revision-модель PostgreSQL и
+recipient-per-device E2EE fan-out. Новые участники не получают старую историю
+автоматически, а удалённые сохраняют уже доставленные данные, но перестают получать
+новые конверты. Структурированные `@user` и `@all` находятся внутри нового
+content-v4; обычный текст без упоминаний остаётся byte-identical content-v1.
+`@all` считается действительным только от владельца или администратора на стороне
+получателя. Это bounded MVP без MLS, ratchet и криптографически защищённого журнала
+состава; подробности — [ADR 0021](docs/adr/0021-small-groups-and-encrypted-mentions.md).
 
 Версия `0.17.0` добавляет browser-bound открытие локального vault без ежедневной
 фразы. Новый браузер создаёт неэкспортируемый WebCrypto-ключ в IndexedDB, а
@@ -47,12 +57,12 @@ Skopka.Chat — переиспользуемый транспорт-незави
 - `Skopka.Chat.UI.Maui` — виртуализированный нативный `CollectionView` с compiled bindings, стабильным diff, темами, templates и host callbacks для файлов/пересылки/paging.
 - `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
 - `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses, потоковая загрузка/расшифровка attachments и ограниченные retries идемпотентных операций; без ссылки на Server.
-- `Skopka.Chat.Server` — личные диалоги, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
+- `Skopka.Chat.Server` — личные и малые групповые диалоги, роли/состав, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
 - `Skopka.Chat.Server.NSec` — optional Ed25519 verifier для device-binding proof через существующий NSec; без private keys/decryption API и без зависимости Server → Client.
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
-Постоянная device identity и opt-in enrollment/rebind из `0.14.0` сохраняются: logout/re-login не меняет DeviceId, ключи и пути history/outbox. В `0.15.0` protocol-v1, content-v1/v2/v3 и binding-v1 canonical bytes не менялись; текстовый браузерный клиент совместим с сервером `0.14.0`. Ни binding, ни локальное шифрование не заменяют Auth, не восстанавливают потерянные ключи и не добавляют ratchet/forward secrecy. См. [инструкцию подключения](docs/device-identity.md) и [совместимость](docs/protocol-compatibility.md).
+Постоянная device identity и opt-in enrollment/rebind из `0.14.0` сохраняются: logout/re-login не меняет DeviceId, ключи и пути history/outbox. В `0.18.0` outer protocol-v1 и binding-v1 не менялись; content-v4 используется только текстом со структурированными упоминаниями. Ни binding, ни локальное шифрование не заменяют Auth, не восстанавливают потерянные ключи и не добавляют ratchet/forward secrecy. См. [инструкцию подключения](docs/device-identity.md) и [совместимость](docs/protocol-compatibility.md).
 
 ```mermaid
 flowchart LR

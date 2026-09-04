@@ -16,8 +16,11 @@ public static class ChatContentVersions
     /// <summary>Text and attachment-caption edit events.</summary>
     public const byte V3 = 3;
 
+    /// <summary>Text messages with structured encrypted mentions.</summary>
+    public const byte V4 = 4;
+
     /// <summary>The latest content version understood by this package.</summary>
-    public const byte Current = V3;
+    public const byte Current = V4;
 }
 
 /// <summary>Bounds fields before typed content is encrypted or projected.</summary>
@@ -44,6 +47,9 @@ public static class ChatContentLimits
 
     /// <summary>Maximum UTF-8 size of an attachment caption.</summary>
     public const int MaxAttachmentCaptionUtf8Bytes = 4 * 1024;
+
+    /// <summary>Maximum number of distinct encrypted mention targets on one text event.</summary>
+    public const int MaxMentions = 64;
 }
 
 /// <summary>Identifies one logical encrypted content event across per-device envelopes.</summary>
@@ -92,6 +98,50 @@ public enum ChatEditField : byte
     AttachmentCaption = 2,
 }
 
+/// <summary>Target represented by encrypted structured mention metadata.</summary>
+public enum ChatMentionKind : byte
+{
+    /// <summary>One stable authenticated user identifier.</summary>
+    User = 1,
+
+    /// <summary>Every active participant of the conversation.</summary>
+    Everyone = 2,
+}
+
+/// <summary>An encrypted mention target. Display aliases remain host-owned text.</summary>
+public readonly record struct ChatMention
+{
+    /// <summary>Creates one user mention.</summary>
+    public ChatMention(UserId userId)
+    {
+        if (userId.Value == Guid.Empty)
+        {
+            throw new ArgumentException("Mentioned user ID must not be empty.", nameof(userId));
+        }
+
+        Kind = ChatMentionKind.User;
+        UserId = userId;
+    }
+
+    private ChatMention(ChatMentionKind kind)
+    {
+        Kind = kind;
+        UserId = null;
+    }
+
+    /// <summary>Creates the conversation-wide <c>@all</c> mention.</summary>
+    public static ChatMention Everyone { get; } = new(ChatMentionKind.Everyone);
+
+    /// <summary>Structured target kind.</summary>
+    public ChatMentionKind Kind { get; }
+
+    /// <summary>User target when <see cref="Kind"/> is <see cref="ChatMentionKind.User"/>.</summary>
+    public UserId? UserId { get; }
+
+    /// <summary>Returns whether this mention targets the supplied user.</summary>
+    public bool Targets(UserId userId) => Kind == ChatMentionKind.Everyone || UserId == userId;
+}
+
 /// <summary>Base type for versioned content encrypted inside an envelope.</summary>
 public abstract class ChatContent
 {
@@ -120,7 +170,8 @@ public sealed class ChatTextContent : ChatContent
         ChatContentId contentId,
         string text,
         ChatContentId? replyToContentId = null,
-        bool isForwarded = false)
+        bool isForwarded = false,
+        IReadOnlyCollection<ChatMention>? mentions = null)
         : base(contentId, ChatContentKind.Text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -137,6 +188,7 @@ public sealed class ChatTextContent : ChatContent
         Text = text;
         ReplyToContentId = replyToContentId;
         IsForwarded = isForwarded;
+        Mentions = NormalizeMentions(mentions);
     }
 
     /// <summary>Decrypted UTF-16 text for the host application.</summary>
@@ -151,13 +203,55 @@ public sealed class ChatTextContent : ChatContent
     public bool IsForwarded { get; }
 
     /// <summary>
+    /// Stable encrypted targets associated with the visible text. Aliases and matching remain host-owned.
+    /// </summary>
+    public IReadOnlyList<ChatMention> Mentions { get; }
+
+    /// <summary>Returns whether the message carries a structured mention for the supplied user.</summary>
+    public bool MentionsUser(UserId userId) => Mentions.Any(mention => mention.Targets(userId));
+
+    /// <summary>Returns whether the message carries the structured conversation-wide mention.</summary>
+    public bool MentionsEveryone => Mentions.Any(static mention => mention.Kind == ChatMentionKind.Everyone);
+
+    /// <summary>
     /// Copies only text into a new forwarded event, intentionally dropping reply and source attribution.
     /// </summary>
     public ChatTextContent Forward(ChatContentId newContentId) => new(newContentId, Text, isForwarded: true);
 
     /// <inheritdoc />
     public override string ToString() =>
-        $"ChatTextContent(ContentId={ContentId}, ReplyTo={ReplyToContentId}, Forwarded={IsForwarded}, Text=[REDACTED])";
+        $"ChatTextContent(ContentId={ContentId}, ReplyTo={ReplyToContentId}, Forwarded={IsForwarded}, Mentions={Mentions.Count}, Text=[REDACTED])";
+
+    private static ChatMention[] NormalizeMentions(IReadOnlyCollection<ChatMention>? mentions)
+    {
+        if (mentions is null || mentions.Count == 0)
+        {
+            return Array.Empty<ChatMention>();
+        }
+
+        if (mentions.Count > ChatContentLimits.MaxMentions)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mentions), "A text event has too many mention targets.");
+        }
+
+        var normalized = mentions
+            .Select(static mention => mention.Kind switch
+            {
+                ChatMentionKind.Everyone when mention.UserId is null => mention,
+                ChatMentionKind.User when mention.UserId is { Value: var value } && value != Guid.Empty => mention,
+                _ => throw new ArgumentException("Mention metadata is invalid.", nameof(mentions)),
+            })
+            .Distinct()
+            .OrderBy(static mention => mention.Kind)
+            .ThenBy(static mention => mention.UserId?.Value)
+            .ToArray();
+        if (normalized.Length != mentions.Count)
+        {
+            throw new ArgumentException("Mention targets must be distinct.", nameof(mentions));
+        }
+
+        return normalized;
+    }
 }
 
 /// <summary>An encrypted add/remove reaction directed at logical content.</summary>

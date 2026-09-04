@@ -62,6 +62,7 @@ public sealed class ProjectedChatMessage : IProjectedChatItem
         Text = edit?.Content is ChatEditContent editContent ? editContent.NewValue! : content.Text;
         ReplyToContentId = content.ReplyToContentId;
         IsForwarded = content.IsForwarded;
+        Mentions = content.Mentions;
         EditedAt = edit?.SentAt;
         _reactions = Array.AsReadOnly(reactions.ToArray());
     }
@@ -92,6 +93,9 @@ public sealed class ProjectedChatMessage : IProjectedChatItem
 
     /// <summary>Sender assertion that this text was forwarded; not proof of its original author.</summary>
     public bool IsForwarded { get; }
+
+    /// <summary>Encrypted structured mention targets from the original immutable text event.</summary>
+    public IReadOnlyList<ChatMention> Mentions { get; }
 
     /// <inheritdoc />
     public bool IsEdited => EditedAt.HasValue;
@@ -454,7 +458,8 @@ public sealed class ChatConversationProjection
             (ChatTextContent first, ChatTextContent second) =>
                 first.Text == second.Text &&
                 first.ReplyToContentId == second.ReplyToContentId &&
-                first.IsForwarded == second.IsForwarded,
+                first.IsForwarded == second.IsForwarded &&
+                first.Mentions.SequenceEqual(second.Mentions),
             (ChatReactionContent first, ChatReactionContent second) =>
                 first.TargetContentId == second.TargetContentId &&
                 first.Reaction == second.Reaction &&

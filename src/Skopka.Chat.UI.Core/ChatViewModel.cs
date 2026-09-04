@@ -14,6 +14,7 @@ public sealed class ChatViewModel
     private readonly object _gate = new();
     private readonly ChatConversationProjection _projection;
     private readonly IChatContentSender _sender;
+    private readonly Func<string, IReadOnlyCollection<ChatMention>>? _mentionResolver;
     private IReadOnlyList<ProjectedChatMessage> _messages = Array.Empty<ProjectedChatMessage>();
     private IReadOnlyList<IProjectedChatItem> _timeline = Array.Empty<IProjectedChatItem>();
     private string _draftText = string.Empty;
@@ -30,7 +31,8 @@ public sealed class ChatViewModel
     public ChatViewModel(
         ConversationId conversationId,
         UserId currentUserId,
-        IChatContentSender sender)
+        IChatContentSender sender,
+        Func<string, IReadOnlyCollection<ChatMention>>? mentionResolver = null)
     {
         if (conversationId.Value == Guid.Empty)
         {
@@ -45,6 +47,7 @@ public sealed class ChatViewModel
         ConversationId = conversationId;
         CurrentUserId = currentUserId;
         _sender = sender ?? throw new ArgumentNullException(nameof(sender));
+        _mentionResolver = mentionResolver;
         _projection = new ChatConversationProjection(conversationId);
     }
 
@@ -605,7 +608,8 @@ public sealed class ChatViewModel
             (ChatTextContent first, ChatTextContent second) =>
                 first.Text == second.Text &&
                 first.ReplyToContentId == second.ReplyToContentId &&
-                first.IsForwarded == second.IsForwarded,
+                first.IsForwarded == second.IsForwarded &&
+                first.Mentions.SequenceEqual(second.Mentions),
             (ChatReactionContent first, ChatReactionContent second) =>
                 first.TargetContentId == second.TargetContentId &&
                 first.Reaction == second.Reaction &&
@@ -708,7 +712,11 @@ public sealed class ChatViewModel
             attachment.ContentId,
             ChatEditField.AttachmentCaption,
             NormalizeCaption(_draftText)),
-        _ => new ChatTextContent(ChatContentId.New(), _draftText, _replyToContentId),
+        _ => new ChatTextContent(
+            ChatContentId.New(),
+            _draftText,
+            _replyToContentId,
+            mentions: _mentionResolver?.Invoke(_draftText)),
     };
 
     private void RestoreComposerAfterEditCore()

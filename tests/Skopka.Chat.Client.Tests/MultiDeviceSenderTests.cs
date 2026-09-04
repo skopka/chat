@@ -73,6 +73,36 @@ public sealed class MultiDeviceSenderTests
             await sender.SendAsync(ConversationId.New(), new ChatTextContent(ChatContentId.New(), "cancel"), cancellation.Token));
     }
 
+    [Fact]
+    public async Task Group_directory_fans_out_to_devices_owned_by_multiple_other_users()
+    {
+        var now = new DateTimeOffset(2026, 9, 3, 12, 0, 0, TimeSpan.Zero);
+        var keys = new InMemoryDeviceKeyStore();
+        var identities = new DeviceIdentityService(keys);
+        var alice = UserId.New();
+        var current = await identities.CreateAsync(alice, DeviceId.New(), now);
+        var bob = await identities.CreateAsync(UserId.New(), DeviceId.New(), now);
+        var charlie = await identities.CreateAsync(UserId.New(), DeviceId.New(), now);
+        var directory = new FixedDirectory([current, bob, charlie]);
+        var transport = new RecordingTransport();
+        var sender = new ChatMultiDeviceSender(
+            alice,
+            current.DeviceId,
+            new ChatCryptoService(keys),
+            directory,
+            transport,
+            new InMemoryChatFanOutPlanStore(),
+            new FixedTimeProvider(now));
+
+        var result = await sender.SendAsync(
+            ConversationId.New(),
+            new ChatTextContent(ChatContentId.New(), "hello group", mentions: [ChatMention.Everyone]));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(2, result.RequiredCount);
+        Assert.Equal([bob.DeviceId, charlie.DeviceId], transport.Attempts.Select(item => item.RecipientDeviceId));
+    }
+
     private sealed class FixedDirectory(IReadOnlyList<PublicDevice> devices) : IRecipientDeviceDirectory
     {
         public ValueTask<ChatDevicePage> ListConversationDevicesAsync(

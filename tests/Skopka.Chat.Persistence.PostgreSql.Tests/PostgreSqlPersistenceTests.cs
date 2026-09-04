@@ -31,6 +31,57 @@ public sealed class PostgreSqlPersistenceTests
         Assert.Contains("202608310001_InitialEncryptedChatStorage", migrations);
         Assert.Contains("202609010002_DeterministicPendingDeliveryOrder", migrations);
         Assert.Contains("202609020004_UniquePersonalConversations", migrations);
+        Assert.Contains("202609030002_GroupConversations", migrations);
+    }
+
+    [Fact]
+    public async Task PostgreSql_persists_group_membership_roles_and_revision_atomically()
+    {
+        var connectionString = await GetPostgreSqlConnectionStringOrSkipAsync();
+        await using var context = CreateContext(connectionString);
+        await context.Database.MigrateAsync();
+        var store = new PostgreSqlChatStore(context);
+        var engine = new ChatServerEngine(store, store, store, store);
+        var owner = UserId.New();
+        var member = UserId.New();
+        var newcomer = UserId.New();
+        var conversationId = ConversationId.New();
+        var now = DateTimeOffset.UtcNow;
+
+        var group = await engine.CreateGroupConversationAsync(
+            owner,
+            conversationId,
+            "Database group",
+            [member],
+            now);
+        group = await engine.ChangeGroupMemberRoleAsync(
+            owner,
+            conversationId,
+            member,
+            GroupConversationRole.Administrator,
+            group.Revision);
+        group = await engine.AddGroupMemberAsync(
+            member,
+            conversationId,
+            newcomer,
+            group.Revision,
+            now.AddSeconds(1));
+
+        await using var verificationContext = CreateContext(connectionString);
+        try
+        {
+            var repository = (IGroupConversationRepository)new PostgreSqlChatStore(verificationContext);
+            var stored = Assert.IsType<GroupConversation>(await repository.GetAsync(conversationId));
+            Assert.Equal(group.Revision, stored.Revision);
+            Assert.Equal(GroupConversationRole.Administrator, stored.FindMember(member)?.Role);
+            Assert.Equal(GroupConversationRole.Member, stored.FindMember(newcomer)?.Role);
+            Assert.Equal(3, stored.Members.Count);
+        }
+        finally
+        {
+            await verificationContext.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM conversations WHERE conversation_id = {conversationId.Value}");
+        }
     }
 
     [Fact]

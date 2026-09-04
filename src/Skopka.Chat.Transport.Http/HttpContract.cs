@@ -17,6 +17,9 @@ public static class SkopkaChatHttpRoutes
     /// <summary>Idempotent personal-conversation lookup/creation endpoint.</summary>
     public const string PersonalConversation = "/conversations/personal";
 
+    /// <summary>Small-group conversation collection.</summary>
+    public const string GroupConversations = "/conversations/groups";
+
     /// <summary>Encrypted-envelope submission endpoint.</summary>
     public const string Envelopes = "/envelopes";
 
@@ -35,6 +38,22 @@ public static class SkopkaChatHttpRoutes
     /// <summary>Returns the active participant-device directory route for a conversation.</summary>
     public static string ConversationDevices(Guid conversationId) =>
         $"{Conversations}/{conversationId:D}/devices";
+
+    /// <summary>Returns the metadata route for one small group.</summary>
+    public static string GroupConversation(Guid conversationId) =>
+        $"{GroupConversations}/{conversationId:D}";
+
+    /// <summary>Returns the member collection route for one small group.</summary>
+    public static string GroupMembers(Guid conversationId) =>
+        $"{GroupConversation(conversationId)}/members";
+
+    /// <summary>Returns the route for one small-group member.</summary>
+    public static string GroupMember(Guid conversationId, Guid userId) =>
+        $"{GroupMembers(conversationId)}/{userId:D}";
+
+    /// <summary>Returns the role route for one small-group member.</summary>
+    public static string GroupMemberRole(Guid conversationId, Guid userId) =>
+        $"{GroupMember(conversationId, userId)}/role";
 
     /// <summary>Returns the acknowledgement route for one encrypted message.</summary>
     public static string Acknowledgement(Guid messageId) =>
@@ -101,6 +120,18 @@ public sealed record CreateConversationRequest(Guid ConversationId, Guid PeerUse
 /// <summary>Gets or creates a personal conversation using only the authenticated user and peer ID.</summary>
 public sealed record GetOrCreateConversationRequest(Guid PeerUserId);
 
+/// <summary>Creates a small group owned by the authenticated user.</summary>
+public sealed record CreateGroupConversationRequest(Guid ConversationId, string Title, Guid[] MemberUserIds);
+
+/// <summary>Renames a group at an expected metadata revision.</summary>
+public sealed record RenameGroupConversationRequest(string Title, long ExpectedRevision);
+
+/// <summary>Adds one ordinary group member at an expected metadata revision.</summary>
+public sealed record AddGroupMemberRequest(Guid UserId, long ExpectedRevision);
+
+/// <summary>Changes one group member role at an expected metadata revision.</summary>
+public sealed record ChangeGroupMemberRoleRequest(byte Role, long ExpectedRevision);
+
 /// <summary>Server-visible public device data returned by the authenticated directory.</summary>
 public sealed record PublicDeviceResponse(
     Guid UserId,
@@ -147,6 +178,23 @@ public sealed record PersonalConversationResponse(
     Guid FirstUserId,
     Guid SecondUserId,
     DateTimeOffset CreatedAt);
+
+/// <summary>One active server-visible small-group participant.</summary>
+public sealed record GroupConversationMemberResponse(Guid UserId, byte Role, DateTimeOffset JoinedAt);
+
+/// <summary>Current small-group metadata; message text and mentions remain encrypted.</summary>
+public sealed record GroupConversationResponse(
+    Guid ConversationId,
+    string Title,
+    Guid CreatedByUserId,
+    long Revision,
+    DateTimeOffset CreatedAt,
+    GroupConversationMemberResponse[] Members);
+
+/// <summary>Bounded page of current small-group metadata.</summary>
+public sealed record GroupConversationDirectoryResponse(
+    GroupConversationResponse[] Items,
+    string? NextCursor);
 
 /// <summary>Bounded page of conversation metadata without message plaintext or previews.</summary>
 public sealed record ConversationDirectoryResponse(

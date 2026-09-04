@@ -472,8 +472,7 @@ public sealed class ChatMultiDeviceSender
         }
 
         var currentSeen = false;
-        var peerSeen = false;
-        UserId? peerUserId = null;
+        var otherParticipantSeen = false;
         var recipients = new List<PublicDevice>(page.Items.Count);
         var deviceIds = new HashSet<DeviceId>();
         foreach (var device in page.Items)
@@ -494,19 +493,13 @@ public sealed class ChatMultiDeviceSender
             }
             else
             {
-                if (peerUserId.HasValue && peerUserId.Value != device.UserId)
-                {
-                    throw new InvalidOperationException("The device directory contains unrelated users.");
-                }
-
-                peerUserId = device.UserId;
-                peerSeen = true;
+                otherParticipantSeen = true;
             }
 
             recipients.Add(device);
         }
 
-        if (!currentSeen || !peerSeen || recipients.Count == 0)
+        if (!currentSeen || !otherParticipantSeen || recipients.Count == 0)
         {
             throw new InvalidOperationException("The conversation has no valid active recipient set.");
         }

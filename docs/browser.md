@@ -32,6 +32,11 @@ Introduced in package line **0.15.0**. Existing 0.14.0 servers remain compatible
 This browser text stage uses the existing server wire protocol;
 no server decryption, private-key endpoint or protocol upgrade is required.
 
+Package 0.18.0 keeps the same browser vault and outer protocol while adding small
+groups and content-v4 structured mentions. Browser hosts resolve aliases locally,
+queue one durable logical event and let the shared sender encrypt one envelope per
+current participant device. Group metadata is server-visible; mention targets are not.
+
 ## Packages and responsibilities
 
 - Client now supplies both native and `net10.0-browser` assets from shared code.

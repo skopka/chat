@@ -16,7 +16,7 @@ validation remain host deployment gates; this mechanism is not independently aud
 
 Client.Browser supports the text/foreground stage with encrypted IndexedDB and
 same-origin cookie BFF adapters; see [browser integration](browser.md). A separate
-local unlock phrase is required. It provides no key/phrase recovery, rotation,
+browser-bound trusted vault removes daily phrase entry after one-time legacy migration. It provides no key/phrase recovery, rotation,
 backup/transfer, media preparation, service-worker offline shell, push or guaranteed
 background execution. Browser storage can be cleared/evicted; complete data loss
 cannot restore the previous installation. XSS and malicious same-origin code can
@@ -49,9 +49,9 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 ## Functional limits
 
 - MAUI iOS targets physical ARM64 devices. The reviewed NSec/libsodium package set has no iOS simulator native binary; CI validates an unsigned device build, not simulator execution or on-device Keychain behavior. See the [MAUI native runtime boundary](maui.md#apple-native-runtime-boundary).
-- Personal chat with encrypted text, replies, non-provenance text forwarding, reactions, text/attachment-caption edits and independently encrypted attachment manifests.
+- Personal and bounded small-group chat with encrypted text, structured mentions, replies, non-provenance text forwarding, reactions, text/attachment-caption edits and independently encrypted attachment manifests.
 - One envelope per active recipient/sibling device. The standard directory and durable sender perform fan-out, but the host still owns trust UX, account lifecycle and policy for starting a new logical send.
-- No message deletion, edit-history UI, groups, attachment replacement/forwarding, resumable/multipart uploads, range playback, thumbnails or automatic media preview. Photos/videos may be prepared locally before the current HTTP path streams a complete ciphertext object.
+- No message deletion, edit-history UI, MLS/large groups, ownership transfer, old-history sharing on join, member-change system events, attachment replacement/forwarding, resumable/multipart uploads, range playback, thumbnails or automatic media preview. Photos/videos may be prepared locally before the current HTTP path streams a complete ciphertext object.
 - No push-notification provider integration.
 - No key backup, recovery, transfer or account reset protocol.
 - The optional Minimal API and typed HTTP client support request/response polling only; no WebSocket or SignalR push transport is included.
@@ -84,5 +84,5 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 3. Maintained ratcheting protocol for personal chat, introduced as a new protocol version with explicit migration.
 4. Multi-device consistency hardening: transparency-backed device changes, safe device removal, history/bootstrap policy and large-scale outbox operations.
 5. Resumable/multipart attachments, range playback, thumbnails and a separately reviewed safe-forwarding/revocation policy.
-6. Groups, preferably through a maintained MLS implementation when a supported .NET integration is available.
+6. Replace bounded recipient-per-device groups with a maintained MLS implementation when a supported .NET integration is available.
 7. Optional protected key backup/recovery with a separately reviewed threat model.

@@ -200,6 +200,78 @@ public sealed class HttpClientTransportTests
     }
 
     [Fact]
+    public async Task Group_directory_client_uses_typed_routes_and_validates_revision()
+    {
+        var owner = Guid.NewGuid();
+        var member = Guid.NewGuid();
+        var device = Guid.NewGuid();
+        var conversation = Guid.NewGuid();
+        var members = new[]
+        {
+            new GroupConversationMemberResponse(owner, (byte)ChatGroupRole.Owner, Now),
+            new GroupConversationMemberResponse(member, (byte)ChatGroupRole.Member, Now),
+        };
+        using var http = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.Equal("/skopka-chat/v1/conversations/groups", request.RequestUri?.AbsolutePath);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = JsonContent.Create(
+                        new GroupConversationResponse(conversation, "Team", owner, 1, Now, members),
+                        SkopkaChatHttpJsonContext.Default.GroupConversationResponse),
+                });
+            }
+
+            if (request.Method == HttpMethod.Put)
+            {
+                Assert.Equal($"/skopka-chat/v1/conversations/groups/{conversation:D}/members/{member:D}/role",
+                    request.RequestUri?.AbsolutePath);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(
+                        new GroupConversationResponse(conversation, "Team", owner, 2, Now,
+                            [members[0], members[1] with { Role = (byte)ChatGroupRole.Administrator }]),
+                        SkopkaChatHttpJsonContext.Default.GroupConversationResponse),
+                });
+            }
+
+            Assert.Equal("/skopka-chat/v1/conversations/groups", request.RequestUri?.AbsolutePath);
+            Assert.Equal("?take=10", request.RequestUri?.Query);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(
+                    new GroupConversationDirectoryResponse(
+                        [new GroupConversationResponse(conversation, "Team", owner, 1, Now, members)],
+                        null),
+                    SkopkaChatHttpJsonContext.Default.GroupConversationDirectoryResponse),
+            });
+        }))
+        { BaseAddress = new Uri("https://chat.example.test/") };
+        var client = CreateClient(
+            http,
+            new CountingTokenProvider(new ChatAccessToken("token", Now.AddHours(1))),
+            owner,
+            device);
+
+        var created = await client.CreateGroupConversationAsync(
+            new ConversationId(conversation),
+            "Team",
+            [new UserId(member)]);
+        var page = await client.ListGroupConversationsAsync(maximumCount: 10);
+        var promoted = await client.ChangeGroupMemberRoleAsync(
+            created.ConversationId,
+            new UserId(member),
+            ChatGroupRole.Administrator,
+            created.Revision);
+
+        Assert.Equal("Team", Assert.Single(page.Items).Title);
+        Assert.Equal(2, promoted.Revision);
+        Assert.True(promoted.CanMentionEveryone(new UserId(member)));
+    }
+
+    [Fact]
     public async Task Hostile_directory_response_is_rejected_without_reflection()
     {
         var userId = Guid.NewGuid();

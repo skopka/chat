@@ -86,6 +86,12 @@ Add the two coordinated packages and place the component in a Blazor page:
 
 The default Edit action is visible only for projected items whose authenticated `SenderUserId` equals `ChatViewModel.CurrentUserId`. `BeginEdit` reuses the composer for a text body or attachment caption, while preserving the prior unsent draft/reply state until save or cancel:
 
+For product-owned mention autocomplete, pass the optional synchronous mention
+resolver to `ChatViewModel`. It maps visible draft aliases to stable `ChatMention`
+targets immediately before the immutable send content is created. The callback sees
+plaintext and must not log it. It is not invoked for edit events. Forwarding drops
+structured targets even when copied visible text still contains an `@name` token.
+
 ```csharp
 chat.BeginEdit(ownItem.ContentId);
 chat.SetDraftText("corrected text");

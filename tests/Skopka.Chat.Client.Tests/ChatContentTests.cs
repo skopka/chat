@@ -53,6 +53,62 @@ public sealed class ChatContentTests
     }
 
     [Fact]
+    public void Mentioned_text_uses_content_v4_and_round_trips_structured_targets()
+    {
+        var contentId = new ChatContentId(Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"));
+        var mentionedUser = new UserId(Guid.Parse("10213243-5465-7687-98a9-bacbdcedfe0f"));
+        var content = new ChatTextContent(
+            contentId,
+            "@bob @all",
+            mentions: [ChatMention.Everyone, new ChatMention(mentionedUser)]);
+
+        var encoded = ChatContentEncoding.Encode(content);
+        var decoded = Assert.IsType<ChatTextContent>(ChatContentEncoding.Decode(encoded));
+
+        Assert.Equal(
+            "736B6F706B612E636861742E636F6E74656E74345400112233445566778899AABBCCDDEEFF30000255102132435465768798A9BACBDCEDFE0F2A40626F622040616C6C",
+            Convert.ToHexString(encoded));
+        Assert.Equal([new ChatMention(mentionedUser), ChatMention.Everyone], decoded.Mentions);
+        Assert.True(decoded.MentionsUser(mentionedUser));
+        Assert.True(decoded.MentionsEveryone);
+        Assert.DoesNotContain("@bob", decoded.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Mention_validation_rejects_empty_duplicate_and_excessive_targets()
+    {
+        Assert.Throws<ArgumentException>(() => new ChatMention(default));
+        Assert.Throws<ArgumentException>(() => new ChatTextContent(
+            Id(1),
+            "duplicate",
+            mentions: [ChatMention.Everyone, ChatMention.Everyone]));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ChatTextContent(
+            Id(1),
+            "too many",
+            mentions: Enumerable.Range(1, ChatContentLimits.MaxMentions + 1)
+                .Select(value => new ChatMention(new UserId(Id(value).Value)))
+                .ToArray()));
+
+        var canonical = ChatContentEncoding.Encode(new ChatTextContent(
+            Id(2),
+            "order",
+            mentions: [new ChatMention(new UserId(Id(3).Value)), ChatMention.Everyone]));
+        var nonCanonical = canonical[..40]
+            .Concat([(byte)'*'])
+            .Concat(canonical[40..57])
+            .Concat(canonical[58..])
+            .ToArray();
+        Assert.Throws<ChatContentFormatException>(() => ChatContentEncoding.Decode(nonCanonical));
+
+        var duplicateUsers = ChatContentEncoding.Encode(new ChatTextContent(
+            Id(2),
+            "duplicate wire",
+            mentions: [new ChatMention(new UserId(Id(3).Value)), new ChatMention(new UserId(Id(4).Value))]));
+        duplicateUsers.AsSpan(41, 16).CopyTo(duplicateUsers.AsSpan(58, 16));
+        Assert.Throws<ChatContentFormatException>(() => ChatContentEncoding.Decode(duplicateUsers));
+    }
+
+    [Fact]
     public void Edit_encoding_is_deterministic_and_round_trips_without_exposing_plaintext()
     {
         var contentId = new ChatContentId(Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"));
@@ -139,7 +195,11 @@ public sealed class ChatContentTests
     [Fact]
     public void Forward_copies_text_but_drops_reply_and_original_attribution()
     {
-        var original = new ChatTextContent(Id(1), "copy me", Id(2));
+        var original = new ChatTextContent(
+            Id(1),
+            "copy me @all",
+            Id(2),
+            mentions: [ChatMention.Everyone]);
 
         var forwarded = original.Forward(Id(3));
 
@@ -147,6 +207,7 @@ public sealed class ChatContentTests
         Assert.Equal(original.Text, forwarded.Text);
         Assert.Null(forwarded.ReplyToContentId);
         Assert.True(forwarded.IsForwarded);
+        Assert.Empty(forwarded.Mentions);
     }
 
     [Fact]

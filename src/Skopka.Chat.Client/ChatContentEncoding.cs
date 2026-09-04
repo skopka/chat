@@ -28,6 +28,8 @@ public static class ChatContentEncoding
     private const byte EditAttachmentCaption = (byte)'C';
     private const byte ValueAbsent = (byte)'0';
     private const byte ValuePresent = (byte)'1';
+    private const byte MentionUser = (byte)'U';
+    private const byte MentionEveryone = (byte)'*';
 
     /// <summary>Encodes validated content into a bounded deterministic plaintext payload.</summary>
     public static byte[] Encode(ChatContent content)
@@ -39,10 +41,19 @@ public static class ChatContentEncoding
         switch (content)
         {
             case ChatTextContent text:
-                output.WriteByte((byte)('0' + ChatContentVersions.V1));
+                output.WriteByte((byte)('0' + (text.Mentions.Count == 0
+                    ? ChatContentVersions.V1
+                    : ChatContentVersions.V4)));
                 output.WriteByte(TextKind);
                 WriteGuid(output, text.ContentId.Value);
-                WriteText(output, text);
+                if (text.Mentions.Count == 0)
+                {
+                    WriteText(output, text);
+                }
+                else
+                {
+                    WriteMentionedText(output, text);
+                }
                 break;
             case ChatReactionContent reaction:
                 output.WriteByte((byte)('0' + ChatContentVersions.V1));
@@ -114,6 +125,7 @@ public static class ChatContentEncoding
             ((byte)('0' + ChatContentVersions.V1), ReactionKind) => ReadReaction(contentId, remaining),
             ((byte)('0' + ChatContentVersions.V2), AttachmentKind) => ReadAttachment(contentId, remaining),
             ((byte)('0' + ChatContentVersions.V3), EditKind) => ReadEdit(contentId, remaining),
+            ((byte)('0' + ChatContentVersions.V4), TextKind) => ReadMentionedText(contentId, remaining),
             _ => throw new ChatContentFormatException(),
         };
     }
@@ -154,6 +166,48 @@ public static class ChatContentEncoding
 
         var reaction = ChatContentValidation.StrictUtf8.GetString(remaining);
         return new ChatReactionContent(contentId, targetContentId, reaction, operation);
+    }
+
+    private static ChatTextContent ReadMentionedText(ChatContentId contentId, ReadOnlySpan<byte> remaining)
+    {
+        var flags = ReadByte(ref remaining);
+        if (flags is < (byte)'0' or > (byte)'3')
+        {
+            throw new ChatContentFormatException();
+        }
+
+        var flagValue = flags - (byte)'0';
+        ChatContentId? replyTo = (flagValue & 1) != 0 ? ReadContentId(ref remaining) : null;
+        var mentionCount = ReadUInt16(ref remaining);
+        if (mentionCount is < 1 or > ChatContentLimits.MaxMentions)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        var mentions = new ChatMention[mentionCount];
+        for (var index = 0; index < mentions.Length; index++)
+        {
+            mentions[index] = ReadByte(ref remaining) switch
+            {
+                MentionEveryone => ChatMention.Everyone,
+                MentionUser => new ChatMention(new UserId(new Guid(Read(ref remaining, 16), bigEndian: true))),
+                _ => throw new ChatContentFormatException(),
+            };
+        }
+
+        if (remaining.Length > ChatContentLimits.MaxTextUtf8Bytes)
+        {
+            throw new ChatContentFormatException();
+        }
+
+        var text = ChatContentValidation.StrictUtf8.GetString(remaining);
+        var content = new ChatTextContent(contentId, text, replyTo, (flagValue & 2) != 0, mentions);
+        if (!mentions.SequenceEqual(content.Mentions))
+        {
+            throw new ChatContentFormatException();
+        }
+
+        return content;
     }
 
     private static ChatAttachmentContent ReadAttachment(ChatContentId contentId, ReadOnlySpan<byte> remaining)
@@ -261,6 +315,35 @@ public static class ChatContentEncoding
         WriteUtf8(output, content.Reaction);
     }
 
+    private static void WriteMentionedText(Stream output, ChatTextContent content)
+    {
+        var flags = (content.ReplyToContentId.HasValue ? 1 : 0) | (content.IsForwarded ? 2 : 0);
+        output.WriteByte((byte)('0' + flags));
+        if (content.ReplyToContentId is { } replyTo)
+        {
+            WriteGuid(output, replyTo.Value);
+        }
+
+        WriteUInt16(output, checked((ushort)content.Mentions.Count));
+        foreach (var mention in content.Mentions)
+        {
+            switch (mention.Kind)
+            {
+                case ChatMentionKind.Everyone:
+                    output.WriteByte(MentionEveryone);
+                    break;
+                case ChatMentionKind.User when mention.UserId is { } userId:
+                    output.WriteByte(MentionUser);
+                    WriteGuid(output, userId.Value);
+                    break;
+                default:
+                    throw new InvalidOperationException("Unsupported mention target.");
+            }
+        }
+
+        WriteUtf8(output, content.Text);
+    }
+
     private static void WriteAttachment(Stream output, ChatAttachmentContent content)
     {
         WriteGuid(output, content.AttachmentId.Value);
@@ -363,6 +446,9 @@ public static class ChatContentEncoding
 
     private static int ReadInt32(ref ReadOnlySpan<byte> remaining) =>
         BinaryPrimitives.ReadInt32BigEndian(Read(ref remaining, sizeof(int)));
+
+    private static ushort ReadUInt16(ref ReadOnlySpan<byte> remaining) =>
+        BinaryPrimitives.ReadUInt16BigEndian(Read(ref remaining, sizeof(ushort)));
 
     private static string ReadLengthPrefixedUtf8(ref ReadOnlySpan<byte> remaining, int maximumBytes)
     {
