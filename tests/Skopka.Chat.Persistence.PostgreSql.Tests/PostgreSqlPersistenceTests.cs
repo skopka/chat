@@ -491,6 +491,8 @@ public sealed class PostgreSqlPersistenceTests
 
     private sealed class PostgreSqlScenario : IAsyncDisposable
     {
+        private readonly HashSet<Guid> _messageIds = [];
+
         private PostgreSqlScenario(
             string connectionString,
             DateTimeOffset now,
@@ -544,17 +546,21 @@ public sealed class PostgreSqlPersistenceTests
         public EncryptedEnvelope CreateEnvelope(
             MessageId messageId,
             byte[] ciphertext,
-            DateTimeOffset? expiresAt = null) =>
-            Envelope(messageId, ConversationId, Alice, Bob, Now, ciphertext, expiresAt);
+            DateTimeOffset? expiresAt = null)
+        {
+            _messageIds.Add(messageId.Value);
+            return Envelope(messageId, ConversationId, Alice, Bob, Now, ciphertext, expiresAt);
+        }
 
         public async ValueTask DisposeAsync()
         {
             await using var context = CreateContext(ConnectionString);
-            await context.Database.ExecuteSqlInterpolatedAsync($"""
-                DELETE FROM chat_server_event_outbox
-                WHERE source_message_id IN (
-                    SELECT message_id FROM envelopes WHERE conversation_id = {ConversationId.Value})
-                """);
+            foreach (var messageId in _messageIds)
+            {
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $"DELETE FROM chat_server_event_outbox WHERE source_message_id = {messageId}");
+            }
+
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM envelopes WHERE conversation_id = {ConversationId.Value}");
             await context.Database.ExecuteSqlInterpolatedAsync(
