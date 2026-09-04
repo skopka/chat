@@ -329,6 +329,8 @@ public sealed class PostgreSqlChatStore : IDeviceRepository, IConversationReposi
     {
         var canonicalHash = SHA256.HashData(CanonicalEnvelopeEncoding.EncodeEnvelope(envelope));
         _context.Envelopes.Add(EnvelopeEntity.FromDomain(envelope, acceptedAt, canonicalHash));
+        var serverEvent = ChatServerEventFactory.EncryptedEnvelopeAccepted(Guid.NewGuid(), envelope, acceptedAt);
+        _context.ServerEventOutbox.Add(ChatServerOutboxEntity.FromDomain(envelope.MessageId.Value, serverEvent));
         if (await TrySaveAsync(cancellationToken).ConfigureAwait(false))
         {
             return EnvelopeStoreResult.Inserted;

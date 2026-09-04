@@ -53,6 +53,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - One envelope per active recipient/sibling device. The standard directory and durable sender perform fan-out, but the host still owns trust UX, account lifecycle and policy for starting a new logical send.
 - No message deletion, edit-history UI, MLS/large groups, ownership transfer, old-history sharing on join, member-change system events, attachment replacement/forwarding, resumable/multipart uploads, range playback, thumbnails or automatic media preview. Photos/videos may be prepared locally before the current HTTP path streams a complete ciphertext object.
 - No push-notification provider integration.
+- The optional Kafka adapter emits only server-metadata notifications. It is not a client push channel, message history, authorization source, or exactly-once side-effect system; consumers must deduplicate durable `EventId` values and read current state through the normal authorized path.
 - No key backup, recovery, transfer or account reset protocol.
 - The optional Minimal API and typed HTTP client support request/response polling only; no WebSocket or SignalR push transport is included.
 - Delivery is at-least-once. Concurrent pollers may observe the same envelope before acknowledgement. `ChatSyncCoordinator` provides durable store/apply-before-ack with exact `MessageId` deduplication, but idempotent replay is not an exactly-once external-side-effect guarantee.
@@ -68,6 +69,7 @@ The sender uses a new ephemeral X25519 key for each recipient envelope, but this
 - Protect device registration and revocation, rate-limit all endpoints and avoid sensitive logging.
 - Deliver public-key changes to users and require security-code comparison for high-risk conversations.
 - Run migration/TTL cleanup jobs and configure retention, database encryption, backup and operational monitoring.
+- If server events are enabled, pre-create the versioned Kafka topic, configure broker TLS/authentication/ACLs and bounded retention, register the PostgreSQL outbox, monitor oldest due row/lag/retries, and require consumer inbox idempotency before committing offsets.
 - Choose and harden one `IAttachmentStore`: bounded PostgreSQL `bytea` for small files or S3-compatible object storage for larger media. Configure quotas, proxy limits, bucket/database policy, encryption at rest, orphan/expiry cleanup and backup/restore.
 - Implement `IAttachmentAccessAuthorizer` against authoritative conversation membership. Treat decrypted names/MIME as untrusted, discard partial output on failure, prevent path traversal and scan content before preview/open.
 - If media preparation is enabled, provision a private plaintext working directory, pin/sandbox the host FFmpeg binary, bound concurrent processes/time/disk and clean stale operation directories after abnormal termination. `File` mode is the exact-byte escape hatch; JPEG conversion does not preserve PNG transparency/animation.

@@ -32,6 +32,7 @@ public sealed class PostgreSqlPersistenceTests
         Assert.Contains("202609010002_DeterministicPendingDeliveryOrder", migrations);
         Assert.Contains("202609020004_UniquePersonalConversations", migrations);
         Assert.Contains("202609030002_GroupConversations", migrations);
+        Assert.Contains("202609040001_EncryptedEnvelopeEventOutbox", migrations);
     }
 
     [Fact]
@@ -156,10 +157,81 @@ public sealed class PostgreSqlPersistenceTests
         }
         finally
         {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM chat_server_event_outbox WHERE source_message_id = {messageId.Value}");
             await context.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM envelopes WHERE message_id = {messageId.Value}");
             await context.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM conversations WHERE conversation_id = {conversationId.Value}");
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM devices WHERE device_id = {alice.DeviceId.Value} OR device_id = {bob.DeviceId.Value}");
+        }
+    }
+
+    [Fact]
+    public async Task Commit_then_publisher_crash_before_mark_redelivers_same_event_id_without_losing_envelope()
+    {
+        await using var scenario = await PostgreSqlScenario.CreateAsync();
+        var envelope = scenario.CreateEnvelope(MessageId.New(), [0x53, 0x45, 0x43, 0x52, 0x45, 0x54]);
+        var acceptedAt = scenario.Now.AddSeconds(1);
+        await using (var submissionContext = CreateContext(scenario.ConnectionString))
+        {
+            var repository = (IEnvelopeRepository)new PostgreSqlChatStore(submissionContext);
+            Assert.Equal(EnvelopeStoreResult.Inserted, await repository.TryAddAsync(envelope, acceptedAt));
+        }
+
+        await using (var retryContext = CreateContext(scenario.ConnectionString))
+        {
+            var repository = (IEnvelopeRepository)new PostgreSqlChatStore(retryContext);
+            Assert.Equal(EnvelopeStoreResult.Duplicate, await repository.TryAddAsync(envelope, acceptedAt));
+        }
+
+        Guid eventId;
+        await using (var firstPublisherContext = CreateContext(scenario.ConnectionString))
+        {
+            var outbox = new PostgreSqlChatEventOutbox(firstPublisherContext);
+            var firstClaim = Assert.Single(await outbox.ClaimPendingAsync(
+                "publisher-before-crash",
+                10,
+                acceptedAt,
+                TimeSpan.FromSeconds(30)));
+            eventId = firstClaim.Message.EventId;
+            Assert.Equal(1, firstClaim.AttemptCount);
+            var payload = System.Text.Encoding.UTF8.GetString(firstClaim.Message.Payload.Span);
+            Assert.Contains(envelope.MessageId.Value.ToString("D"), payload, StringComparison.Ordinal);
+            Assert.DoesNotContain("SECRET", payload, StringComparison.Ordinal);
+            // Simulate successful broker delivery followed by process loss before MarkPublishedAsync.
+        }
+
+        await using (var earlyRestartContext = CreateContext(scenario.ConnectionString))
+        {
+            var outbox = new PostgreSqlChatEventOutbox(earlyRestartContext);
+            Assert.Empty(await outbox.ClaimPendingAsync(
+                "publisher-early-restart",
+                10,
+                acceptedAt.AddSeconds(29),
+                TimeSpan.FromSeconds(30)));
+        }
+
+        await using (var recoveredContext = CreateContext(scenario.ConnectionString))
+        {
+            var outbox = new PostgreSqlChatEventOutbox(recoveredContext);
+            var recovered = Assert.Single(await outbox.ClaimPendingAsync(
+                "publisher-after-lease",
+                10,
+                acceptedAt.AddSeconds(31),
+                TimeSpan.FromSeconds(30)));
+            Assert.Equal(eventId, recovered.Message.EventId);
+            Assert.Equal(2, recovered.AttemptCount);
+            Assert.True(await outbox.MarkPublishedAsync(
+                eventId,
+                "publisher-after-lease",
+                acceptedAt.AddSeconds(32)));
+
+            var repository = (IEnvelopeRepository)new PostgreSqlChatStore(recoveredContext);
+            var stored = Assert.Single(await repository.GetPendingAsync(
+                scenario.Bob.DeviceId,
+                10,
+                acceptedAt.AddSeconds(33)));
+            Assert.Equal(envelope.MessageId, stored.Envelope.MessageId);
         }
     }
 
@@ -185,6 +257,12 @@ public sealed class PostgreSqlPersistenceTests
         await using var verificationContext = CreateContext(scenario.ConnectionString);
         var repository = (IEnvelopeRepository)new PostgreSqlChatStore(verificationContext);
         Assert.Single(await repository.GetPendingAsync(scenario.Bob.DeviceId, 10, scenario.Now));
+        var outbox = new PostgreSqlChatEventOutbox(verificationContext);
+        Assert.Single(await outbox.ClaimPendingAsync(
+            "concurrent-identical-verifier",
+            10,
+            scenario.Now.AddSeconds(2),
+            TimeSpan.FromSeconds(30)));
     }
 
     [Fact]
@@ -472,6 +550,11 @@ public sealed class PostgreSqlPersistenceTests
         public async ValueTask DisposeAsync()
         {
             await using var context = CreateContext(ConnectionString);
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                DELETE FROM chat_server_event_outbox
+                WHERE source_message_id IN (
+                    SELECT message_id FROM envelopes WHERE conversation_id = {ConversationId.Value})
+                """);
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"DELETE FROM envelopes WHERE conversation_id = {ConversationId.Value}");
             await context.Database.ExecuteSqlInterpolatedAsync(

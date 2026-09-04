@@ -114,6 +114,7 @@ jobs:
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Server"
+            "Skopka.Chat.Server.Kafka"
             "Skopka.Chat.Server.NSec"
             "Skopka.Chat.Bots"
             "Skopka.Chat.Bots.Sqlite"
@@ -134,8 +135,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 21 || "$SNUPKG_COUNT" -ne 21 ]]; then
-            echo "Expected 21 packages and 21 symbol packages for ${PACKAGE_VERSION}, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 22 || "$SNUPKG_COUNT" -ne 22 ]]; then
+            echo "Expected 22 packages and 22 symbol packages for ${PACKAGE_VERSION}, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
@@ -390,6 +391,7 @@ jobs:
             "Skopka.Chat.Transport.Http"
             "Skopka.Chat.Client.Http"
             "Skopka.Chat.Server"
+            "Skopka.Chat.Server.Kafka"
             "Skopka.Chat.Server.NSec"
             "Skopka.Chat.Bots"
             "Skopka.Chat.Bots.Sqlite"
@@ -405,8 +407,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 23 || "$SNUPKG_COUNT" -ne 23 ]]; then
-            echo "Expected 23 packages and 23 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 24 || "$SNUPKG_COUNT" -ne 24 ]]; then
+            echo "Expected 24 packages and 24 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 

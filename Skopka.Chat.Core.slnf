@@ -26,6 +26,7 @@
       "src\\Skopka.Chat.Protocol\\Skopka.Chat.Protocol.csproj",
       "src\\Skopka.Chat.Server.AspNetCore\\Skopka.Chat.Server.AspNetCore.csproj",
       "src\\Skopka.Chat.Server.NSec\\Skopka.Chat.Server.NSec.csproj",
+      "src\\Skopka.Chat.Server.Kafka\\Skopka.Chat.Server.Kafka.csproj",
       "src\\Skopka.Chat.Server\\Skopka.Chat.Server.csproj",
       "src\\Skopka.Chat.Transport.Http\\Skopka.Chat.Transport.Http.csproj",
       "src\\Skopka.Chat.UI.Blazor\\Skopka.Chat.UI.Blazor.csproj",

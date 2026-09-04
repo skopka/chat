@@ -6,6 +6,13 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 ## Пакеты
 
+Версия `0.19.0` ещё не опубликована. Текущая ветка разработки добавляет первый серверный event-срез: envelope и
+PostgreSQL Outbox фиксируются одной транзакцией, а отдельный optional
+`Skopka.Chat.Server.Kafka` публикует metadata-only событие с at-least-once
+семантикой. Синхронные HTTP-команды, polling/history и E2EE-форматы не меняются;
+Kafka не становится источником истины. См. [руководство по server events](docs/server-events.md)
+и [ADR 0022](docs/adr/0022-postgresql-outbox-kafka-server-events.md).
+
 Версия `0.18.0` добавляет малые групповые диалоги до 64 участников, роли
 владельца/администратора/участника, атомарную revision-модель PostgreSQL и
 recipient-per-device E2EE fan-out. Новые участники не получают старую историю
@@ -58,6 +65,7 @@ content-v4; обычный текст без упоминаний остаётс
 - `Skopka.Chat.Transport.Http` — общие HTTP routes, JSON DTO, protocol mappings, лимиты и строгий source-generated `System.Text.Json` профиль; зависит только от Protocol.
 - `Skopka.Chat.Client.Http` — typed `HttpClient`, `IAccessTokenProvider`, HTTPS-by-default, bounded responses, потоковая загрузка/расшифровка attachments и ограниченные retries идемпотентных операций; без ссылки на Server.
 - `Skopka.Chat.Server` — личные и малые групповые диалоги, роли/состав, жизненный цикл устройств, идемпотентный приём, очередь доставки, acknowledgements и repository-интерфейсы; без ссылки на Client.
+- `Skopka.Chat.Server.Kafka` — необязательный Kafka publisher и hosted PostgreSQL-Outbox dispatcher; зависит от transport-neutral контрактов Server, не заменяет историю и не входит в доменное ядро.
 - `Skopka.Chat.Server.NSec` — optional Ed25519 verifier для device-binding proof через существующий NSec; без private keys/decryption API и без зависимости Server → Client.
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
@@ -73,6 +81,7 @@ flowchart LR
     Api --> Server[Server: binding orchestration]
     Pg[Persistence.PostgreSql: atomic consume/enroll/bind] --> Server
     Verify[Server.NSec: public-key verification] --> Server
+    Kafka[Server.Kafka: optional event publisher] --> Server
     Server --> Protocol[Protocol: canonical binding-v1]
     Client --> Protocol
     DTO --> Protocol
@@ -325,6 +334,13 @@ builder.Services.AddScoped<IDeviceRepository>(sp => sp.GetRequiredService<Postgr
 builder.Services.AddScoped<IConversationRepository>(sp => sp.GetRequiredService<PostgreSqlChatStore>());
 builder.Services.AddScoped<IEnvelopeRepository>(sp => sp.GetRequiredService<PostgreSqlChatStore>());
 builder.Services.AddScoped<ChatServerEngine>();
+
+// Optional reliable metadata events; PostgreSQL remains the source of truth.
+builder.Services.AddScoped<IChatServerEventOutbox, PostgreSqlChatEventOutbox>();
+builder.Services.AddSkopkaChatKafkaServerEvents(options =>
+{
+    options.BootstrapServers = "kafka:9092";
+});
 builder.Services.AddSkopkaChatAspNetCore(options =>
 {
     options.UserIdClaimType = ClaimTypes.NameIdentifier;
@@ -369,9 +385,9 @@ dotnet test --project tests/Skopka.Chat.Binding.Tests
 
 Каждая тестовая сборка получает собственный контейнер и удаляет его после выполнения. Для внешней одноразовой БД задайте `SKOPKA_CHAT_POSTGRES`; эта переменная имеет приоритет. Без connection string и флага Testcontainers DB-тесты корректно пропускаются; `SKOPKA_CHAT_POSTGRES_REQUIRED=true` превращает такой пропуск или недоступный Docker в ошибку release-gate.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из двадцати трёх пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из двадцати четырёх пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый JSON/content/binding fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает двадцать три `.nupkg` вместе с двадцатью тремя `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content/binding fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает двадцать четыре `.nupkg` вместе с двадцатью четырьмя `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а typed client может использовать `IChatEventStore`/`ChatSyncCoordinator` для durable store-before-ack; `IReceivedMessageStore` остаётся низкоуровневой границей `ChatReceiver`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 

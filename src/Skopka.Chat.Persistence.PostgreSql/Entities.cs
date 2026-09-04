@@ -164,3 +164,40 @@ internal sealed class EnvelopeEntity
         AcceptedAt,
         AcknowledgedAt);
 }
+
+internal sealed class ChatServerOutboxEntity
+{
+    public Guid EventId { get; set; }
+    public Guid SourceMessageId { get; set; }
+    public string EventType { get; set; } = string.Empty;
+    public int EventVersion { get; set; }
+    public DateTimeOffset OccurredAt { get; set; }
+    public string PartitionKey { get; set; } = string.Empty;
+    public byte[] Payload { get; set; } = [];
+    public int AttemptCount { get; set; }
+    public DateTimeOffset NextAttemptAt { get; set; }
+    public string? LeaseOwner { get; set; }
+    public DateTimeOffset? LeaseExpiresAt { get; set; }
+    public DateTimeOffset? LastFailedAt { get; set; }
+    public DateTimeOffset? PublishedAt { get; set; }
+
+    public static ChatServerOutboxEntity FromDomain(Guid sourceMessageId, ChatServerOutboxMessage message) => new()
+    {
+        EventId = message.EventId,
+        SourceMessageId = sourceMessageId,
+        EventType = message.EventType,
+        EventVersion = message.EventVersion,
+        OccurredAt = message.OccurredAt,
+        PartitionKey = message.PartitionKey,
+        Payload = message.Payload.ToArray(),
+        NextAttemptAt = message.OccurredAt
+    };
+
+    public ChatServerOutboxMessage ToDomain() => new(
+        EventId,
+        EventType,
+        EventVersion,
+        OccurredAt,
+        PartitionKey,
+        Payload);
+}

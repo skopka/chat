@@ -29,6 +29,7 @@
     <PackageReference Include="Skopka.Chat.Transport.Http" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Client.Http" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Server" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.Server.Kafka" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Server.NSec" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Server.AspNetCore" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Persistence.PostgreSql" Version="$(ChatPackageVersion)" />

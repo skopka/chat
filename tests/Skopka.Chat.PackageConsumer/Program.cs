@@ -10,6 +10,7 @@ using Skopka.Chat.Media.FFmpeg;
 using Skopka.Chat.Persistence.PostgreSql;
 using Skopka.Chat.Protocol;
 using Skopka.Chat.Server;
+using Skopka.Chat.Server.Kafka;
 using Skopka.Chat.Server.NSec;
 using Skopka.Chat.Server.AspNetCore;
 using Skopka.Chat.Transport.Http;
@@ -66,6 +67,7 @@ Type[] packageSurfaces =
     typeof(SkopkaChatHttpRoutes),
     typeof(SkopkaChatHttpClient),
     typeof(ChatServerEngine),
+    typeof(KafkaChatServerEventPublisher),
     typeof(NSecDeviceProofVerifier),
     typeof(SkopkaChatEndpointRouteBuilderExtensions),
     typeof(ChatDbContext)
@@ -76,8 +78,8 @@ var assemblies = packageSurfaces
     .Select(name => $"{name.Name} {name.Version}")
     .ToArray();
 
-if (assemblies.Length != 20 ||
-    assemblies.Distinct(StringComparer.Ordinal).Count() != 20 ||
+if (assemblies.Length != 21 ||
+    assemblies.Distinct(StringComparer.Ordinal).Count() != 21 ||
     assemblies.Any(string.IsNullOrWhiteSpace))
 {
     throw new InvalidOperationException(

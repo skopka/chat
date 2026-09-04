@@ -8,6 +8,8 @@
 
 ## Build and architecture
 
+- [`server-events.md`](server-events.md) — atomic PostgreSQL Outbox, optional Kafka publisher, topic and consumer operations.
+- [`adr/0022-postgresql-outbox-kafka-server-events.md`](adr/0022-postgresql-outbox-kafka-server-events.md) — at-least-once event boundary and source-of-truth decision.
 - [`bots.md`](bots.md) — owner-hosted bot runtime, private gateway and mandatory host consent integration (0.15.0).
 - [`adr/0018-self-hosted-bots.md`](adr/0018-self-hosted-bots.md) — endpoint key custody, grants, durable updates and private API boundary.
 

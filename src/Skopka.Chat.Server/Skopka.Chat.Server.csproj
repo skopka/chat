@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>Skopka.Chat.Server</PackageId>
-    <Description>Transport-neutral device, conversation and encrypted-envelope delivery engine for Skopka.Chat.</Description>
+    <Description>Transport-neutral device, conversation, encrypted-envelope delivery and server-event contracts for Skopka.Chat.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />

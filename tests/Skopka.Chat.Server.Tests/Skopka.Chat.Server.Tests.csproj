@@ -7,6 +7,7 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Skopka.Chat.Server.Kafka\Skopka.Chat.Server.Kafka.csproj" />
     <ProjectReference Include="..\..\src\Skopka.Chat.Server\Skopka.Chat.Server.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>Skopka.Chat.Persistence.PostgreSql</PackageId>
-    <Description>EF Core and PostgreSQL server storage for Skopka.Chat encrypted envelopes.</Description>
+    <Description>EF Core and PostgreSQL storage for Skopka.Chat encrypted envelopes and atomic server-event outbox.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Skopka.Chat.Protocol\Skopka.Chat.Protocol.csproj" />

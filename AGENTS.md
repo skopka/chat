@@ -53,6 +53,7 @@ Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitatio
 | `src/Skopka.Chat.Transport.Http` | Shared routes, HTTP DTOs, limits, mappings, strict source-generated JSON metadata | Protocol only |
 | `src/Skopka.Chat.Client.Http` | Authenticated typed HTTP client, bounded responses, retries and encrypted attachment upload adapter | Client + Media + Transport.Http; never Server |
 | `src/Skopka.Chat.Server` | Transport-neutral device/conversation/envelope engine and repository contracts | Protocol only; never Client or ASP.NET Core |
+| `src/Skopka.Chat.Server.Kafka` | Optional Kafka publisher and hosted lease-based dispatcher for server metadata events | Server + reviewed Confluent.Kafka; never Client or Persistence.PostgreSql |
 | `src/Skopka.Chat.Server.NSec` | Optional public-key-only binding-v1 Ed25519 verifier | Server + reviewed NSec; never Client or private-key/decryption APIs |
 | `src/Skopka.Chat.Server.AspNetCore` | Authenticated Minimal API adapter, principal mapping and optional ciphertext attachment routes | Protocol + Server + Attachments + Transport.Http; never Client |
 | `src/Skopka.Chat.Persistence.PostgreSql` | EF Core/Npgsql implementation, migrations, cleanup | Protocol + Server |
@@ -150,6 +151,7 @@ Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external data
 - Server rules: run Server and in-memory integration tests; prove rejection before persistence.
 - HTTP DTO/parser/client/server changes: run both HTTP unit projects, fuzz corpus replay (and AFL++ when available), and `Skopka.Chat.Http.IntegrationTests`; cover malformed and hostile inputs on both sides.
 - PostgreSQL query/model/migration changes: run the complete PostgreSQL project against a disposable database and the PostgreSQL-backed HTTP integration.
+- Server event/outbox/Kafka changes: run Server tests, the required disposable-PostgreSQL crash/retry gate and HTTP integration; prove the Server assembly has no Kafka dependency, event payloads contain no plaintext/key/ciphertext fields, exact retries create one event, and consumers are documented as durable `EventId`-deduplicating at-least-once handlers. Live Kafka ACL/TLS, ISR/failover and load remain deployment gates unless an owned broker gate is explicitly configured.
 - Attachment crypto/storage/HTTP changes: run Client, Attachments, both HTTP projects, content fuzz replay/AFL++, and the attachment PostgreSQL gate; test truncation, trailing data, tampering, ID conflict, authorization and partial-destination behavior.
 - Media preparation changes: run Media tests plus Client and Client.Http tests; prove exact `File` bypass, `Auto` fallback, generated path isolation, bounded output, generic failures and prepare-before-encrypt ordering. A fake runner does not certify a deployment's FFmpeg binary; run the opt-in synthetic conformance gate against the selected host build.
 - Authentication/authorization changes: include missing, malformed, duplicate, and cross-user/device negative cases; never use untrusted headers as a production authentication example.
@@ -185,7 +187,7 @@ Before a requested release or version commit:
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly twenty-three versioned `.nupkg` and twenty-three matching `.snupkg` files were produced in `artifacts/packages`, run core, browser and MAUI package consumers, and ensure the working tree is clean.
+6. Confirm exactly twenty-four versioned `.nupkg` and twenty-four matching `.snupkg` files were produced in `artifacts/packages`, run core, browser and MAUI package consumers, and ensure the working tree is clean.
 
 Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 

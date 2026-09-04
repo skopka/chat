@@ -19,6 +19,9 @@ public sealed class ChatDbContext : DbContext
     internal DbSet<GroupConversationMemberEntity> GroupConversationMembers => Set<GroupConversationMemberEntity>();
 
     internal DbSet<EnvelopeEntity> Envelopes => Set<EnvelopeEntity>();
+
+    internal DbSet<ChatServerOutboxEntity> ServerEventOutbox => Set<ChatServerOutboxEntity>();
+
     internal DbSet<DeviceChallengeEntity> DeviceChallenges => Set<DeviceChallengeEntity>();
     internal DbSet<DeviceSessionEntity> DeviceSessions => Set<DeviceSessionEntity>();
 
@@ -171,6 +174,55 @@ public sealed class ChatDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_envelopes_sender_device");
             entity.HasOne<DeviceEntity>().WithMany().HasForeignKey(item => item.RecipientDeviceId)
                 .OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_envelopes_recipient_device");
+        });
+
+        modelBuilder.Entity<ChatServerOutboxEntity>(entity =>
+        {
+            entity.ToTable("chat_server_event_outbox", table =>
+            {
+                table.HasCheckConstraint("ck_chat_event_outbox_payload_size", "octet_length(payload) BETWEEN 1 AND 16384");
+                table.HasCheckConstraint("ck_chat_event_outbox_version", "event_version >= 1");
+                table.HasCheckConstraint("ck_chat_event_outbox_attempt_count", "attempt_count BETWEEN 0 AND 1000000");
+                table.HasCheckConstraint(
+                    "ck_chat_event_outbox_lease",
+                    "(lease_owner IS NULL) = (lease_expires_at IS NULL)");
+                table.HasCheckConstraint(
+                    "ck_chat_event_outbox_completion",
+                    "published_at IS NULL OR (lease_owner IS NULL AND lease_expires_at IS NULL)");
+            });
+            entity.HasKey(item => item.EventId).HasName("pk_chat_server_event_outbox");
+            entity.Property(item => item.EventId).HasColumnName("event_id").ValueGeneratedNever();
+            entity.Property(item => item.SourceMessageId).HasColumnName("source_message_id");
+            entity.Property(item => item.EventType).HasColumnName("event_type")
+                .HasMaxLength(ChatServerEventTypes.MaxIdentifierLength).UseCollation("C");
+            entity.Property(item => item.EventVersion).HasColumnName("event_version");
+            entity.Property(item => item.OccurredAt).HasColumnName("occurred_at");
+            entity.Property(item => item.PartitionKey).HasColumnName("partition_key")
+                .HasMaxLength(ChatServerEventTypes.MaxIdentifierLength).UseCollation("C");
+            entity.Property(item => item.Payload).HasColumnName("payload")
+                .HasMaxLength(ChatServerEventTypes.MaxPayloadBytes);
+            entity.Property(item => item.AttemptCount).HasColumnName("attempt_count");
+            entity.Property(item => item.NextAttemptAt).HasColumnName("next_attempt_at");
+            entity.Property(item => item.LeaseOwner).HasColumnName("lease_owner")
+                .HasMaxLength(ChatServerEventTypes.MaxIdentifierLength).UseCollation("C");
+            entity.Property(item => item.LeaseExpiresAt).HasColumnName("lease_expires_at");
+            entity.Property(item => item.LastFailedAt).HasColumnName("last_failed_at");
+            entity.Property(item => item.PublishedAt).HasColumnName("published_at");
+            entity.HasIndex(item => new { item.SourceMessageId, item.EventType, item.EventVersion })
+                .IsUnique().HasDatabaseName("ux_chat_event_outbox_source");
+            entity.HasIndex(item => new
+            {
+                item.PublishedAt,
+                item.NextAttemptAt,
+                item.LeaseExpiresAt,
+                item.OccurredAt,
+                item.EventId
+            })
+                .HasFilter("published_at IS NULL")
+                .HasDatabaseName("ix_chat_event_outbox_pending");
+            entity.HasIndex(item => item.PublishedAt)
+                .HasFilter("published_at IS NOT NULL")
+                .HasDatabaseName("ix_chat_event_outbox_published");
         });
     }
 }

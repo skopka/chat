@@ -63,6 +63,7 @@ The assets are message/file plaintext, device and attachment keys, decrypted fil
 ## Trust boundaries and adversaries
 
 - The network, server, PostgreSQL operators and S3-compatible provider are untrusted for message/file confidentiality.
+- When optional server events are enabled, Kafka operators and authorized event consumers join the server-metadata trust boundary. Kafka never receives message plaintext, ciphertext, or key material from the v1 event, but it observes routing identifiers and timestamps.
 - A malicious or compromised server may read, drop, delay, duplicate, reorder or replace records and public-key directory responses.
 - The cryptographic library and the client's local secure-storage implementation are trusted dependencies.
 - The optional SQLite provider and the host-selected local database location/protection are trusted for endpoint confidentiality and durability.
@@ -84,6 +85,12 @@ These properties do not make this implementation Signal-compatible or production
 The server sees user, device, conversation, message, attachment and public-key identifiers; group titles, member IDs, roles, join times and metadata revisions; public encryption and signing keys; device registration/revocation times; sender/recipient/uploader identifiers; message/attachment creation, acceptance, expiry, delivery and acknowledgement times; protocol/content transport version; envelope and attachment ciphertext length/hash; ephemeral public key, nonce, authentication tag and signature; delivery frequency and IP/transport metadata supplied by the host.
 
 The server can therefore infer who communicates with whom, when, how often, from which devices, and approximate plaintext length. Padding is not implemented in v1.
+
+The optional encrypted-envelope-accepted event repeats a bounded subset of this already
+server-visible metadata in Kafka: event/message/conversation and sender/recipient device
+IDs plus protocol and timestamps. Broker ACL, TLS, retention, audit, and consumer access
+are host responsibilities. Kafka is not authorized history and never contains the only
+copy of an accepted envelope.
 
 ## Server compromise
 

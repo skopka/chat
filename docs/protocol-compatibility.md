@@ -78,6 +78,7 @@ AEAD associated data covers the canonical header and ephemeral public key. Tests
 | `0.16.x` | v1 | v1 | Adds opt-in E2EE history backup/recovery with independent backup-v1 domains, account-scoped HTTP/PostgreSQL storage and Browser/MAUI adapters. Restored history is explicitly archive-key authenticated, not sender-signature reverified; device identity/outbox are not transferred. Existing envelope/content/binding bytes are unchanged. Coordinated set: 23 packages. |
 | `0.17.x` | v1 | v1 | Adds a browser-bound non-extractable trusted vault key and one-time migration from phrase vaults. Envelope/content/binding bytes remain unchanged. |
 | `0.18.x` | v1 | v1 | Adds server-visible bounded groups and content-v4 text with encrypted structured mentions. Unmentioned text remains byte-identical content v1; outer envelope and binding bytes remain unchanged. |
+| `0.19.x` *(not published)* | v1 | v1 | Adds an optional metadata-only server event v1 through atomic PostgreSQL Outbox and a separate Kafka adapter. Kafka is not message history; envelope/content/binding and synchronous HTTP bytes are unchanged. Coordinated set: 24 packages. |
 
 Patch releases must not change canonical v1 output. Minor releases may add optional APIs or support a new protocol version, but must retain v1 decoding/validation if they claim compatibility. Removal of a protocol version or breaking public API requires a major package version.
 
