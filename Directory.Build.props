@@ -21,7 +21,7 @@
     <PackageOutputPath>$(MSBuildThisFileDirectory)artifacts\packages</PackageOutputPath>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/skopka/chat.git</RepositoryUrl>
-    <PackageProjectUrl>https://github.com/skopka/chat</PackageProjectUrl>
+    <PackageProjectUrl>https://products.skopka.ru/chat/</PackageProjectUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <IncludeSymbols>true</IncludeSymbols>

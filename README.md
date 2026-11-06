@@ -4,6 +4,14 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 > **Security status:** это ограниченный E2EE MVP, а не реализация Signal и не прошедший аудит production-протокол. В v1 нет Double Ratchet, forward secrecy относительно компрометации долгосрочного ключа получателя и post-compromise security. Перед использованием прочитайте [threat model](docs/threat-model.md), [ADR по криптографии](docs/adr/0001-e2ee-cryptography.md) и [ограничения MVP](docs/mvp-limitations.md).
 
+## Documentation
+
+Documentation for Skopka.Chat **0.19.0**:
+
+- [Product overview](https://products.skopka.ru/en/chat/index.html)
+- [Guide (English)](https://products.skopka.ru/guides/en/chat.html) · [Руководство (русский)](https://products.skopka.ru/guides/ru/chat.html)
+- [API reference](https://products.skopka.ru/api/chat/index.html)
+
 ## Пакеты
 
 Версия `0.19.0` ещё не опубликована. Текущая ветка разработки добавляет первый серверный event-срез: envelope и
