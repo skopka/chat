@@ -261,8 +261,12 @@ jobs:
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          dotnet workload update --version 10.0.101
+          $config = Get-Content -Raw global.json | ConvertFrom-Json
+          $config.sdk | Add-Member -NotePropertyName workloadVersion -NotePropertyValue '10.0.101' -Force
+          $config | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 global.json
           dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj
+          if ((dotnet workload --version).Trim() -ne '10.0.101') { throw 'Unexpected workload set version.' }
+          dotnet workload --info
 
       - name: Restore MAUI release projects
         shell: pwsh
