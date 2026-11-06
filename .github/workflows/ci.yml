@@ -326,8 +326,10 @@ jobs:
 
   maui-apple:
     name: MAUI iOS and Mac Catalyst
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.1.1.app/Contents/Developer
 
     steps:
       - name: Check out repository
