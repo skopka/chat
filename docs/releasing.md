@@ -73,3 +73,7 @@ The workflow never publishes a server container because this repository intentio
 NuGet packages cannot be overwritten. If publication begins and only part of the coordinated set succeeds, do not rerun with `--skip-duplicate` and do not reuse the version. Diagnose the failure, increment the patch version, repeat the complete validation, and publish a new tag. Deprecate an incorrect package on NuGet.org when appropriate; unlisting is not a replacement for a corrected release.
 
 Creating packages locally, uploading CI artifacts, or creating a Git commit does not authorize tag creation or publication. A release requires an explicit user decision.
+
+## Products documentation
+
+Follow the Products documentation synchronization requirements in [AGENTS.md](../AGENTS.md#products-documentation-synchronization) and the canonical [Products workflow](https://git.skopka.ru/skopka/products/src/branch/main/docs/documentation-workflow.md). Prepare consumer-facing documentation before release, then verify the published tag and all packages before updating the Products pin and deploying the site. Report any remaining publication or deployment stage.
