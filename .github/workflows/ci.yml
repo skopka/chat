@@ -343,7 +343,7 @@ jobs:
           global-json-file: global.json
 
       - name: Restore MAUI workloads
-        run: dotnet workload restore samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --version 10.0.101
+        run: bash eng/run-maui-workload-restore.sh
 
       - name: Build iOS and Mac Catalyst sample and run trimming smoke
         run: bash eng/run-maui-apple-gates.sh
