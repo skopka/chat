@@ -477,7 +477,7 @@ jobs:
       - validate
       - combine-packages
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 95
     environment: release
     permissions:
       contents: read
@@ -636,11 +636,22 @@ jobs:
             "skopka.chat.servertrusted.blazor"
           )
 
-          for ATTEMPT in {1..60}; do
+          # NuGet.org validates and indexes new versions asynchronously; first-time package IDs and
+          # busy periods can take well over ten minutes. After a successful push, wait up to 75 minutes.
+          # After a failed push, only report which packages NuGet accepted.
+          if [[ "$PUSH_OUTCOME" == "success" ]]; then
+            WAIT_SECONDS=4500
+          else
+            WAIT_SECONDS=600
+          fi
+          DEADLINE=$((SECONDS + WAIT_SECONDS))
+          ATTEMPT=0
+          while true; do
+            ATTEMPT=$((ATTEMPT + 1))
             MISSING=()
             for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
               PACKAGE_URL="https://api.nuget.org/v3-flatcontainer/${PACKAGE_ID}/${VERSION_LOWER}/${PACKAGE_ID}.${VERSION_LOWER}.nupkg"
-              if ! curl --fail --silent --show-error --head "$PACKAGE_URL" > /dev/null; then
+              if ! curl --fail --silent --head "$PACKAGE_URL" > /dev/null; then
                 MISSING+=("$PACKAGE_ID")
               fi
             done
@@ -650,15 +661,29 @@ jobs:
                 echo "All packages are visible, but NuGet push reported a failure; symbol publication is not proven. Do not reuse this version." >&2
                 exit 1
               fi
-              echo "All packages are available on NuGet.org."
+              echo "All ${#PACKAGE_IDS[@]} packages are available on NuGet.org after ${SECONDS}s."
               exit 0
             fi
 
-            echo "Attempt ${ATTEMPT}: waiting for ${MISSING[*]}"
-            sleep 10
+            if (( SECONDS >= DEADLINE )); then
+              break
+            fi
+
+            echo "Attempt ${ATTEMPT} (${SECONDS}s): ${#MISSING[@]} of ${#PACKAGE_IDS[@]} not yet indexed: ${MISSING[*]}"
+            sleep 30
           done
 
-          echo "The version was only partially published. Do not reuse it; fix the cause and release a new patch version." >&2
+          if [[ "$PUSH_OUTCOME" == "success" ]]; then
+            echo "NuGet.org accepted every package, but ${#MISSING[@]} are still not indexed after $((WAIT_SECONDS / 60)) minutes: ${MISSING[*]}." >&2
+            echo "This is not a partial publication. Do not push again or bump the version; check the packages' validation status on NuGet.org, wait until they appear, then create the GitHub Release for this tag manually from the release-packages artifact." >&2
+          else
+            echo "NuGet push failed and ${#MISSING[@]} packages are not visible: ${MISSING[*]}." >&2
+            if (( ${#MISSING[@]} < ${#PACKAGE_IDS[@]} )); then
+              echo "Some packages were accepted, so the version is partially published. Do not reuse it; fix the cause and release a new patch version." >&2
+            else
+              echo "No package of this version is visible yet. Confirm on NuGet.org that none was accepted before releasing the same version again; otherwise release a new patch version." >&2
+            fi
+          fi
           exit 1
 
   publish-release:

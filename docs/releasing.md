@@ -66,7 +66,7 @@ The release workflow then:
 - combines artifacts and verifies the exact twenty-seven-package and twenty-seven-symbol-package set;
 - refuses to start if any package ID already owns that version on NuGet.org;
 - uploads immutable artifacts, enters the protected `release` environment, and pushes packages in dependency order;
-- waits until every package is visible on NuGet.org;
+- waits up to 75 minutes until every package is visible on NuGet.org (validation and indexing are asynchronous and first-time package IDs can take longer than ten minutes);
 - creates a GitHub Release containing all `.nupkg` and `.snupkg` files.
 
 The workflow never publishes a server container because this repository intentionally contains no production host image.
@@ -74,6 +74,8 @@ The workflow never publishes a server container because this repository intentio
 ## Failure and recovery
 
 NuGet packages cannot be overwritten. If publication begins and only part of the coordinated set succeeds, do not rerun with `--skip-duplicate` and do not reuse the version. Diagnose the failure, increment the patch version, repeat the complete validation, and publish a new tag. Deprecate an incorrect package on NuGet.org when appropriate; unlisting is not a replacement for a corrected release.
+
+If the push succeeded but some packages are still not indexed when the wait ends, the job fails with a message that NuGet.org accepted every package. That is not a partial publication: do not push again, do not re-run the failed jobs (the "completely unpublished version" check would now fail) and do not bump the version. Check the packages' validation status on NuGet.org, wait until all IDs appear, then create the GitHub Release for the tag manually and attach the `.nupkg` and `.snupkg` files from the run's `release-packages` artifact. A partial publication is only the case where the push itself failed after NuGet.org accepted some packages; the job reports that explicitly.
 
 Creating packages locally, uploading CI artifacts, or creating a Git commit does not authorize tag creation or publication. A release requires an explicit user decision.
 
