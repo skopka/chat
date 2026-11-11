@@ -46,7 +46,14 @@
       "tests\\Skopka.Chat.Server.Tests\\Skopka.Chat.Server.Tests.csproj",
       "tests\\Skopka.Chat.Testing\\Skopka.Chat.Testing.csproj",
       "tests\\Skopka.Chat.UI.Blazor.Tests\\Skopka.Chat.UI.Blazor.Tests.csproj",
-      "tests\\Skopka.Chat.UI.Core.Tests\\Skopka.Chat.UI.Core.Tests.csproj"
+      "tests\\Skopka.Chat.UI.Core.Tests\\Skopka.Chat.UI.Core.Tests.csproj",
+      "src\\Skopka.Chat.ServerTrusted\\Skopka.Chat.ServerTrusted.csproj",
+      "src\\Skopka.Chat.ServerTrusted.PostgreSql\\Skopka.Chat.ServerTrusted.PostgreSql.csproj",
+      "src\\Skopka.Chat.ServerTrusted.Blazor\\Skopka.Chat.ServerTrusted.Blazor.csproj",
+      "tests\\Skopka.Chat.ServerTrusted.Tests\\Skopka.Chat.ServerTrusted.Tests.csproj",
+      "tests\\Skopka.Chat.ServerTrusted.PostgreSql.Tests\\Skopka.Chat.ServerTrusted.PostgreSql.Tests.csproj",
+      "tests\\Skopka.Chat.ServerTrusted.Blazor.Tests\\Skopka.Chat.ServerTrusted.Blazor.Tests.csproj",
+      "samples\\Skopka.Chat.ServerTrusted.Sample\\Skopka.Chat.ServerTrusted.Sample.csproj"
     ]
   }
 }

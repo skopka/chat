@@ -1,5 +1,27 @@
 # Threat model
 
+## Server-trusted mode: the server reads messages (0.20.0)
+
+`Skopka.Chat.ServerTrusted*` is a separate package family **without end-to-end encryption**. Everything in the E2EE
+sections below does not apply to it. Message text, prior versions of edited messages, retained text of deleted
+messages, report comments, attachments and file names are plaintext in the host database, its replicas and backups,
+the blob store and server memory (including Blazor Server circuits). Database, backup, blob-storage, log or memory
+access equals full read access to every server-trusted conversation; there is no confidentiality against the operator,
+a DBA or a compromised server, and no tamper evidence.
+
+The library's guarantees are limited to: authorization of every actor operation by stored state plus a mandatory
+host policy (no allow-all default) with writes re-checked under the conversation row lock; generic rejections that
+do not reveal conversation existence; content-free live signals and `pg_notify` payloads that force an authorized
+re-read; metadata-only outbox events; report-window reads only for non-participants allowed per report, bounded and
+logged in the same transaction (fail closed); bounded, strictly validated input; and the documented erasure
+semantics (already-published events keep the original user ID). Host responsibilities include protecting databases,
+backups and blob storage, TLS and authentication, correct role checks inside the policy, keeping `CanRead` in sync
+with revocations (the unread total uses stored state), safe download headers and content validation/malware scanning,
+Markdown/HTML rendering, log and telemetry redaction, notification content, retention and legal basis for minors'
+data, and review of an access log that a DBA could still alter. A host that runs both modes must label the mode in its
+UI; no API converts a conversation between modes. See [server-trusted.md](server-trusted.md) and
+[ADR 0023](adr/0023-server-trusted-chat-mode.md).
+
 ## Encrypted-history backup boundary (0.16.0)
 
 Backup-v1 is opt-in and uses a separate random recovery key, HKDF domain separation

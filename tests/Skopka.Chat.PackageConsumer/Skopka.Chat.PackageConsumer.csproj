@@ -33,6 +33,9 @@
     <PackageReference Include="Skopka.Chat.Server.NSec" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Server.AspNetCore" Version="$(ChatPackageVersion)" />
     <PackageReference Include="Skopka.Chat.Persistence.PostgreSql" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.ServerTrusted" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.ServerTrusted.PostgreSql" Version="$(ChatPackageVersion)" />
+    <PackageReference Include="Skopka.Chat.ServerTrusted.Blazor" Version="$(ChatPackageVersion)" />
   </ItemGroup>
 
 </Project>

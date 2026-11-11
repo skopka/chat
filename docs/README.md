@@ -10,6 +10,8 @@
 
 - [`server-events.md`](server-events.md) — atomic PostgreSQL Outbox, optional Kafka publisher, topic and consumer operations.
 - [`adr/0022-postgresql-outbox-kafka-server-events.md`](adr/0022-postgresql-outbox-kafka-server-events.md) — at-least-once event boundary and source-of-truth decision.
+- [`server-trusted.md`](server-trusted.md) — server-trusted (no E2EE) mode: the server reads messages; registration, moderation, erasure, events and Blazor Server.
+- [`adr/0023-server-trusted-chat-mode.md`](adr/0023-server-trusted-chat-mode.md) — separate server-trusted (no E2EE) package family, its boundaries and threat model.
 - [`bots.md`](bots.md) — owner-hosted bot runtime, private gateway and mandatory host consent integration (0.15.0).
 - [`adr/0018-self-hosted-bots.md`](adr/0018-self-hosted-bots.md) — endpoint key custody, grants, durable updates and private API boundary.
 

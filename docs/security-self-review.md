@@ -1,5 +1,21 @@
 # Security-boundary self-review
 
+## Server-trusted mode review (0.20.0)
+
+Confirmed by tests: no E2EE assembly references a ServerTrusted assembly and the core/Blazor packages reference no
+Client, E2EE UI, Server, persistence or cryptography assembly; only `.PostgreSql` references `Skopka.Chat.Server`
+for the outbox. Policy denial for one participant leaves the other unaffected; strangers and unknown IDs get the same
+generic rejection; invalid text, oversized uploads and rate-limited writes leave no state or events. Event payloads
+have pinned metadata-only shapes without text, reference IDs or comments. PostgreSQL tests cover gap-free sequences
+and unique revisions under concurrent sends, one message/event for concurrent exact retries, closure racing sends,
+monotonic concurrent read markers, edit/delete races, concurrent get-or-create and reports, fail-closed report-window
+logging, erasure in both modes, attachment single binding with queued blob deletion that survives a storage outage,
+outbox lease redelivery and NOTIFY delivery across engines.
+
+Not hidden: this mode trusts the server completely; the access log is not tamper-evident; `pg_notify` and outbox rows
+expose conversation and user identifiers to database readers; the in-memory store is a test double; no independent
+review has occurred.
+
 ## Small-group and encrypted-mention review (0.18.0)
 
 - Group title/member/role/revision metadata is explicitly server-visible; private

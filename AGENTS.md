@@ -16,7 +16,7 @@ Do not commit, push, publish packages, alter shared infrastructure, or perform d
 
 Skopka.Chat is a transport-independent personal-chat engine for .NET 10. Protocol v1 is a constrained E2EE MVP, not Signal Protocol, MLS, or an audited production protocol.
 
-These invariants are non-negotiable:
+These invariants are non-negotiable for every E2EE package (everything except the `Skopka.Chat.ServerTrusted*` family):
 
 - The server may store public device data, conversation metadata, ciphertext, authentication data, and delivery state. It must not receive plaintext or private keys and must not expose a decryption API.
 - Private key material crosses only `IDeviceKeyStore`. In-memory key and message stores are test/sample implementations, never production recommendations.
@@ -30,6 +30,17 @@ These invariants are non-negotiable:
 - Treat cryptographic changes, authentication changes, parser relaxations, logging changes, and persistence concurrency changes as security-sensitive.
 
 Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitations.md`, and `docs/adr/0001-e2ee-cryptography.md` before changing a trust boundary or cryptographic behavior.
+
+### Server-trusted mode invariants
+
+`Skopka.Chat.ServerTrusted`, `.PostgreSql` and `.Blazor` are a separate mode in which the server stores and reads plaintext (ADR 0023, `docs/server-trusted.md`). Never describe it as encrypted or private from the operator, and never let it weaken the E2EE packages:
+
+- No E2EE package references a ServerTrusted assembly, and ServerTrusted never references `Skopka.Chat.Client*`, the E2EE `UI.*`, `Persistence.PostgreSql`, `Server.AspNetCore` or cryptography providers. Only `.PostgreSql` references `Skopka.Chat.Server`, and only for the outbox contracts and dispatcher. There is no API that converts between modes; identifier types stay distinct.
+- Every actor operation checks stored state and then the host `IServerTrustedChatAccessPolicy`; there is no allow-all default. Writes re-check stored state under the conversation row lock inside the same transaction. Rejections stay generic (`NotFoundOrForbidden`).
+- Live signals and `pg_notify` payloads carry no content; subscribers re-read through the engine. Outbox events stay metadata-only (no text, file names, host reference IDs or report comments); logs, exceptions and telemetry never contain message text.
+- Report-window reads are for non-participants allowed per report, bounded by the radius ceiling, and logged in the same transaction (fail closed). There is no standing staff read API.
+- Erasure removes participations and read markers in both modes and replaces IDs in reports and the access log with the host surrogate. Outbox rows are not rewritten.
+- Sequences are gap-free per conversation, `ChangeRevision` advances once per mutation, and `(conversation, author, ClientMessageId)` idempotency produces one message and one event.
 
 ## Repository map and dependency direction
 
@@ -57,8 +68,12 @@ Read `docs/threat-model.md`, `docs/security-self-review.md`, `docs/mvp-limitatio
 | `src/Skopka.Chat.Server.NSec` | Optional public-key-only binding-v1 Ed25519 verifier | Server + reviewed NSec; never Client or private-key/decryption APIs |
 | `src/Skopka.Chat.Server.AspNetCore` | Authenticated Minimal API adapter, principal mapping and optional ciphertext attachment routes | Protocol + Server + Attachments + Transport.Http; never Client |
 | `src/Skopka.Chat.Persistence.PostgreSql` | EF Core/Npgsql implementation, migrations, cleanup | Protocol + Server |
+| `src/Skopka.Chat.ServerTrusted` | Server-trusted (no E2EE) engine, models, limits, host hooks, store contract, live signals, metadata-only events, in-memory test store | Attachments only; never Client, UI, Server or persistence |
+| `src/Skopka.Chat.ServerTrusted.PostgreSql` | Schema-configurable EF Core store, migrations, outbox, dispatcher/maintenance workers and `LISTEN/NOTIFY` bridge | ServerTrusted + Server (outbox contracts only) + EF Core/Npgsql + Hosting.Abstractions |
+| `src/Skopka.Chat.ServerTrusted.Blazor` | Blazor Server components, headless view model, strings and CSS variables for the server-trusted mode | ServerTrusted + Components.Web; never Server, Client, E2EE UI or persistence |
 | `tests/*` | Unit, boundary, in-memory, PostgreSQL, and full HTTP/E2EE tests | May compose only the packages needed by the scenario |
 | `samples/Skopka.Chat.Sample` | Demonstration code, not a production host | Keep security limitations explicit |
+| `samples/Skopka.Chat.ServerTrusted.Sample` | Razor Pages + Blazor Server islands demonstrating the server-trusted mode with synthetic users | Sample only; synthetic sign-in is not an authentication example |
 
 Do not solve dependency cycles by moving client cryptography into Protocol or by making Server reference Client. Automated assembly-boundary tests are intentional release gates.
 
@@ -138,6 +153,7 @@ dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests --configura
 dotnet test --project tests/Skopka.Chat.Binding.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Attachments.Tests --configuration Release --no-build --no-restore
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests --configuration Release --no-build --no-restore
+dotnet test --project tests/Skopka.Chat.ServerTrusted.PostgreSql.Tests --configuration Release --no-build --no-restore
 ```
 
 Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external database; it takes precedence over Testcontainers. `SKOPKA_CHAT_POSTGRES_REQUIRED=true` is mandatory for a release-like database gate so a missing external database and disabled Testcontainers fail instead of skipping. CI in `.github/workflows/ci.yml` is the canonical full gate.
@@ -158,6 +174,7 @@ Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external data
 - Bot changes: run `Skopka.Chat.Bots.Tests`, strict JSON/content fuzz replay, Client.Storage and HTTP integration tests; preserve deny-by-default host consent, operator revision, two-stage acknowledgement, exact outbox retries and create-only protected identity. Read ADR 0018; never implement a plaintext gateway in Server.
 - Browser changes: read ADR 0019 and `docs/browser.md`; run `node eng/browser/run-gate.mjs` in real Chromium and Firefox, native/binding/HTTP/storage/UI regressions and the browser NuGet consumer. Keep crypto vendored and pinned; never silently change NSecPrivateKey or portable-key/vault versions. No plaintext IndexedDB/localStorage, server prerender or fake bearer tokens. Explicit installation/vault/device creation and cross-tab reserve/create/finalize remain mandatory.
 - Identity/binding changes: run Binding and Client.Maui tests, binding corpus replay, required owned-container PostgreSQL restart/atomicity and HTTP re-login/history/outbox gates. Update `docs/device-identity.md` and ADR 0017. Custom stores must preserve create-only and crash-recovery semantics.
+- Server-trusted changes: read ADR 0023 and `docs/server-trusted.md`; run `Skopka.Chat.ServerTrusted.Tests`, `Skopka.Chat.ServerTrusted.Blazor.Tests` and the required disposable-PostgreSQL `Skopka.Chat.ServerTrusted.PostgreSql.Tests` gate. Prove rejection before persistence, policy denial per participant, concurrency (sequences, revisions, idempotency, closure, read markers, edit/delete), metadata-only event shapes, fail-closed access logging and both assembly-boundary directions. Keep migrations append-only and schema-qualified.
 - Dependency changes: update only `Directory.Packages.props`, review transitive/native impact, restore, and run the complete gate.
 - Documentation-only changes: run `git diff --check` and validate every local link/path and every command against the repository.
 
@@ -175,6 +192,7 @@ Set `SKOPKA_CHAT_POSTGRES` instead to use an explicitly disposable external data
 - `docs/adr/0013-encrypted-message-edits.md` defines content-v3 edit bytes, author checks, deterministic folding and UI edit semantics.
 - `docs/adr/0014-durable-client-events-and-sync.md` defines verified local history, SQLite plaintext storage and store/apply/ack ordering.
 - `docs/adr/0016-maui-client-orchestration.md` defines MAUI endpoint boundaries, exact multi-device outbox retries, bounded paging and native UI responsibilities.
+- `docs/adr/0023-server-trusted-chat-mode.md` defines the separate server-trusted (no E2EE) package family, its authorization, moderation, erasure and threat model.
 
 Update documentation in the same change when public APIs, package boundaries, protocol behavior, security assumptions, deployment responsibilities, migrations, or verification commands change.
 
@@ -195,7 +213,7 @@ Before a requested release or version commit:
 3. Run formatting, Release build, the infrastructure-free solution tests, required PostgreSQL gates, and pack validation.
 4. Create a focused commit only if requested.
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
-6. Confirm exactly twenty-four versioned `.nupkg` and twenty-four matching `.snupkg` files were produced in `artifacts/packages`, run core, browser and MAUI package consumers, and ensure the working tree is clean.
+6. Confirm exactly twenty-seven versioned `.nupkg` and twenty-seven matching `.snupkg` files were produced in `artifacts/packages`, run core, browser and MAUI package consumers, and ensure the working tree is clean.
 
 Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 

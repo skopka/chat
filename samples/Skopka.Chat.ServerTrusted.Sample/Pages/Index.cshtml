@@ -1,0 +1,12 @@
+@page
+@{
+    ViewData["Title"] = "Вход";
+}
+<h1>Выберите синтетического пользователя</h1>
+<p>Только для sample: настоящий хост аутентифицирует пользователей своим провайдером.</p>
+<form method="post" action="/signin" class="users">
+    @foreach (var user in SampleUsers.All)
+    {
+        <button type="submit" name="user" value="@user.Key">@user.DisplayName</button>
+    }
+</form>

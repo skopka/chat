@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.ServerTrusted</PackageId>
+    <Description>Server-trusted (no end-to-end encryption) chat engine for Skopka.Chat: the server stores and reads messages under host authorization.</Description>
+    <PackageTags>chat;server-trusted;moderation;blazor-server;postgresql;skopka</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.Attachments\Skopka.Chat.Attachments.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Skopka.Chat.ServerTrusted.Tests" />
+  </ItemGroup>
+
+</Project>

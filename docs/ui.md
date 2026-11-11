@@ -5,6 +5,9 @@ application, not inferred from component availability. UI.Blazor references the
 Components.Web package instead of the ASP.NET Core shared framework. Use
 [Client.Browser and the runnable sample](browser.md) for actual browser E2EE;
 never prerender decrypted components or use Blazor Server for this integration.
+This prohibition applies to the E2EE UI packages only. The separate server-trusted mode, in which the server
+already reads every message, ships its own Blazor Server components with prerender; see
+[server-trusted.md](server-trusted.md).
 
 `Skopka.Chat.UI.Core`, `Skopka.Chat.UI.Blazor` and `Skopka.Chat.UI.Maui` are optional client-side packages. They never run on the server and do not change the protocol-v1 envelope. Their timeline projects content-v1 text/reactions, content-v2 attachment manifests and author-validated content-v3 edits already authenticated by Client.
 

@@ -13,6 +13,9 @@ using Skopka.Chat.Server;
 using Skopka.Chat.Server.Kafka;
 using Skopka.Chat.Server.NSec;
 using Skopka.Chat.Server.AspNetCore;
+using Skopka.Chat.ServerTrusted;
+using Skopka.Chat.ServerTrusted.Blazor;
+using Skopka.Chat.ServerTrusted.PostgreSql;
 using Skopka.Chat.Transport.Http;
 using Skopka.Chat.UI;
 using Skopka.Chat.UI.Blazor;
@@ -70,7 +73,10 @@ Type[] packageSurfaces =
     typeof(KafkaChatServerEventPublisher),
     typeof(NSecDeviceProofVerifier),
     typeof(SkopkaChatEndpointRouteBuilderExtensions),
-    typeof(ChatDbContext)
+    typeof(ChatDbContext),
+    typeof(ServerTrustedChatService),
+    typeof(PostgreSqlServerTrustedChatStore),
+    typeof(ServerTrustedChat)
 ];
 
 var assemblies = packageSurfaces
@@ -78,8 +84,8 @@ var assemblies = packageSurfaces
     .Select(name => $"{name.Name} {name.Version}")
     .ToArray();
 
-if (assemblies.Length != 21 ||
-    assemblies.Distinct(StringComparer.Ordinal).Count() != 21 ||
+if (assemblies.Length != 24 ||
+    assemblies.Distinct(StringComparer.Ordinal).Count() != 24 ||
     assemblies.Any(string.IsNullOrWhiteSpace))
 {
     throw new InvalidOperationException(

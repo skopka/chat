@@ -1,0 +1,32 @@
+@{
+    var signedIn = SampleUsers.TryGetCurrent(User, out var current);
+}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] — Skopka.Chat server-trusted sample</title>
+    <base href="/" />
+    <link rel="stylesheet" href="site.css" />
+    <link rel="stylesheet" href="Skopka.Chat.ServerTrusted.Sample.styles.css" />
+</head>
+<body>
+    <header class="top">
+        <strong>Server-trusted sample</strong>
+        <span class="warning">Сервер читает сообщения: E2EE нет. Только синтетические данные.</span>
+        @if (signedIn)
+        {
+            <span>@current.DisplayName</span>
+            <span class="badge-slot">Непрочитано:
+                <component type="typeof(Skopka.Chat.ServerTrusted.Blazor.ServerTrustedChatUnreadBadge)" render-mode="ServerPrerendered"
+                           param-UserId="current.Id" />
+            </span>
+            <form method="post" action="/signout"><button type="submit">Выйти</button></form>
+        }
+    </header>
+    <main>@RenderBody()</main>
+    <persist-component-state />
+    <script src="_framework/blazor.server.js"></script>
+</body>
+</html>

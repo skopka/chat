@@ -1,0 +1,8 @@
+@page
+@model ChatModel
+@{
+    ViewData["Title"] = "Чат с преподавателем";
+}
+<h1>Чат с преподавателем</h1>
+<component type="typeof(MentorChat)" render-mode="ServerPrerendered"
+           param-ConversationId="Model.ConversationId" param-UserId="Model.UserId" param-LessonId="Model.LessonId" />

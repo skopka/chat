@@ -1,6 +1,6 @@
 # Releasing Skopka.Chat packages
 
-Skopka.Chat follows the coordinated NuGet publication model used by the maintained `Skopka.*` package families. One version represents all twenty-four packages and is immutable once any member reaches NuGet.org.
+Skopka.Chat follows the coordinated NuGet publication model used by the maintained `Skopka.*` package families. One version represents all twenty-seven packages and is immutable once any member reaches NuGet.org.
 
 ## One-time repository configuration
 
@@ -18,7 +18,7 @@ Do not store the NuGet key in repository secrets, local files, shell history, wo
 1. Set `VersionPrefix` in `Directory.Build.props` to the intended stable base version.
 2. Update the README release summary, protocol compatibility table, security/limitation documents, and ADRs.
 3. Run formatting, Release build, the complete infrastructure-free suite, all required disposable-PostgreSQL gates, fuzz corpus replay/AFL++ smoke, dependency audit, the Windows/macOS MAUI matrix, pack, and core, browser and MAUI package-consumer validations.
-4. Commit the release state and recreate packages after the commit. Verify the `.nuspec` repository SHA, twenty-four `.nupkg` files, and twenty-four `.snupkg` files.
+4. Commit the release state and recreate packages after the commit. Verify the `.nuspec` repository SHA, twenty-seven `.nupkg` files, and twenty-seven `.snupkg` files.
 5. Push the commit to `main` and wait for CI to succeed.
 
 The checked-in CI/release gates set `SKOPKA_CHAT_POSTGRES_TESTCONTAINERS=true` and start a pinned disposable PostgreSQL per test assembly. `SKOPKA_CHAT_POSTGRES` remains an external disposable-database override for environments that cannot expose Docker to the test process.
@@ -49,6 +49,9 @@ Package IDs are published in dependency order:
 22. `Skopka.Chat.Bots.Sqlite`
 23. `Skopka.Chat.Bots.AspNetCore`
 24. `Skopka.Chat.Client.Browser`
+25. `Skopka.Chat.ServerTrusted`
+26. `Skopka.Chat.ServerTrusted.PostgreSql`
+27. `Skopka.Chat.ServerTrusted.Blazor`
 
 ## Triggering publication
 
@@ -60,7 +63,7 @@ The release workflow then:
 - validates SemVer and matches its stable base to `VersionPrefix`;
 - repeats formatting, core build/tests, PostgreSQL gates, fuzz smoke and dependency audit on Linux;
 - builds/tests/packs the MAUI packages on Windows, verifies Android/Windows sample builds, all four package assets and the Android package consumer; the commit must also have passed the CI iOS/Mac Catalyst and trimming gate;
-- combines artifacts and verifies the exact twenty-four-package and twenty-four-symbol-package set;
+- combines artifacts and verifies the exact twenty-seven-package and twenty-seven-symbol-package set;
 - refuses to start if any package ID already owns that version on NuGet.org;
 - uploads immutable artifacts, enters the protected `release` environment, and pushes packages in dependency order;
 - waits until every package is visible on NuGet.org;

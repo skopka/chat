@@ -1,5 +1,22 @@
 # MVP limitations and roadmap
 
+## Server-trusted mode (0.20.0)
+
+- Not encrypted end to end and not confidential from the operator; see the threat model before choosing it.
+- Live updates across replicas need the `LISTEN/NOTIFY` bridge on a direct or session-pooled connection; signals lost
+  while it reconnects are repaired only by the components' periodic catch-up (default 30 s).
+- No HTTP/SignalR API, no Kafka topic mapping for server-trusted events and no attachment download endpoint are
+  shipped; the host maps downloads and consumes events in process.
+- The unread total counts stored readable participations without asking the host policy per conversation.
+- Attachments are buffered in memory up to the configured limit (ceiling 50 MiB) to hash them; no resumable uploads,
+  thumbnails or previews. Blobs in `Skopka.Chat.Attachments.PostgreSql` stay in that package's own table.
+- Erasure cannot reach already-published events or host copies; reassigned authors' text may still contain personal data.
+- The access log is append-only by API only; it is not tamper-evident against database administrators.
+- Blazor components: no per-user signal routing (every unread badge re-queries on any activity in its process), no
+  single-message read for reply previews outside the loaded window, and an uncapped timeline for long-open pages.
+  The legacy `ServerPrerendered` + `<persist-component-state />` round trip was verified manually in the sample host,
+  not by an automated browser gate.
+
 ## Opt-in backup scope (0.16.0)
 
 [Backup-v1](backups.md) restores text/events and attachment references independently

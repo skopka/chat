@@ -126,7 +126,7 @@ dotnet build samples/Skopka.Chat.Maui.Sample/Skopka.Chat.Maui.Sample.csproj --fr
 
 Windows CI also builds the unpackaged Windows target and creates both MAUI NuGet packages, then inspects their Android/iOS/Mac Catalyst/Windows assets and restores `tests/Skopka.Chat.Maui.PackageConsumer` from those local files. macOS CI builds the iOS ARM64 device and Mac Catalyst targets and performs a trimmed Mac Catalyst publish smoke. The reviewed libsodium package has no iOS simulator native asset; signing and on-device deployment remain host responsibilities. A build on only one desktop OS is not the coordinated MAUI release gate.
 
-Dependency audit follows the same platform boundary. Linux audits the thirty-two restored core projects through `Skopka.Chat.Core.slnf`; Windows separately audits the two MAUI packages, their two test projects and the MAUI sample after workload restore. Keep the filter synchronized with non-MAUI solution projects so adding a platform package cannot make Linux load an unsupported workload or silently remove that package from the appropriate audit.
+Dependency audit follows the same platform boundary. Linux audits the fifty-two restored core projects through `Skopka.Chat.Core.slnf`; Windows separately audits the two MAUI packages, their two test projects and the MAUI sample after workload restore. Keep the filter synchronized with non-MAUI solution projects so adding a platform package cannot make Linux load an unsupported workload or silently remove that package from the appropriate audit.
 
 ## Coverage-guided JSON fuzzing
 
@@ -160,7 +160,7 @@ For schema changes, generate a new EF migration. Existing migrations are append-
 
 ## Packaging and release verification
 
-The coordinated set contains twenty-four NuGet packages and twenty-four symbol packages. Linux creates the twenty-two core/browser packages; Windows adds `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` after building all package target frameworks. CI combines the artifacts and rejects missing or extra versioned files:
+The coordinated set contains twenty-seven NuGet packages and twenty-seven symbol packages. Linux creates the twenty-five core/browser/server-trusted packages; Windows adds `Skopka.Chat.Client.Maui` and `Skopka.Chat.UI.Maui` after building all package target frameworks. CI combines the artifacts and rejects missing or extra versioned files:
 
 ```powershell
 dotnet pack Skopka.Chat.sln --configuration Release --no-build --no-restore --property:ContinuousIntegrationBuild=true
@@ -175,7 +175,7 @@ $packageVersion = dotnet msbuild src/Skopka.Chat.Protocol/Skopka.Chat.Protocol.c
 tar -xOf "artifacts/packages/Skopka.Chat.Transport.Http.$packageVersion.nupkg" Skopka.Chat.Transport.Http.nuspec
 ```
 
-Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` proves consumption of the twenty-one native core assemblies (the browser package has a separate published-WASM consumer); `tests/Skopka.Chat.Maui.PackageConsumer` proves Android consumption of the two platform packages. See [`releasing.md`](releasing.md) for the protected tag workflow.
+Package creation does not imply publication. CI uploads `.nupkg` and `.snupkg` files only as short-lived workflow artifacts. The excluded `tests/Skopka.Chat.PackageConsumer` proves consumption of the twenty-four native core and server-trusted assemblies (the browser package has a separate published-WASM consumer); `tests/Skopka.Chat.Maui.PackageConsumer` proves Android consumption of the two platform packages. See [`releasing.md`](releasing.md) for the protected tag workflow.
 
 ## Security review prompts
 

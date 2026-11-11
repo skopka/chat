@@ -1,0 +1,29 @@
+@* Host wrapper: islands accept only simple values, so delegates and options are set here. *@
+<ServerTrustedChat ConversationId="ConversationId"
+                   UserId="UserId"
+                   Strings="ServerTrustedChatStrings.Russian"
+                   CssClass="sample-chat"
+                   CatchUpInterval="TimeSpan.FromSeconds(10)"
+                   AllowAttachments="true"
+                   AttachmentAccept="image/png,image/jpeg,image/webp"
+                   AttachmentUrl="@(attachment => $"/chat/attachments/{attachment.Id}")"
+                   DraftReferenceType="@(string.IsNullOrEmpty(LessonId) ? null : "lesson")"
+                   DraftReferenceId="@LessonId"
+                   ReferenceLabel="@(reference => reference.Type == "lesson" ? $"Урок {reference.Id}" : $"Задача {reference.Id}")"
+                   ParticipantName="@(participant => participant.Label switch { "parent" => "родитель", "teacher" => "преподаватель", "learner" => "ученик", _ => participant.Label })"
+                   ReportReasons="Reasons"
+                   ReportReasonLabel="@(code => code == "abuse" ? "Оскорбление" : "Спам")"
+                   TimeFormatter="@(time => time.ToOffset(TimeSpan.FromHours(3)).ToString("dd.MM HH:mm", System.Globalization.CultureInfo.InvariantCulture))" />
+
+@code {
+    private static readonly IReadOnlyList<string> Reasons = ["abuse", "spam"];
+
+    [Parameter, EditorRequired]
+    public Guid ConversationId { get; set; }
+
+    [Parameter, EditorRequired]
+    public Guid UserId { get; set; }
+
+    [Parameter]
+    public string? LessonId { get; set; }
+}

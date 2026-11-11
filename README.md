@@ -4,6 +4,8 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 > **Security status:** это ограниченный E2EE MVP, а не реализация Signal и не прошедший аудит production-протокол. В v1 нет Double Ratchet, forward secrecy относительно компрометации долгосрочного ключа получателя и post-compromise security. Перед использованием прочитайте [threat model](docs/threat-model.md), [ADR по криптографии](docs/adr/0001-e2ee-cryptography.md) и [ограничения MVP](docs/mvp-limitations.md).
 
+> **Серверный режим без E2EE.** Отдельное семейство `Skopka.Chat.ServerTrusted*` (с версии `0.20.0`) — чат, в котором **сервер хранит и читает переписку**: модерация, жалобы, обезличивание, счётчики непрочитанного и Blazor Server. В этом режиме нет конфиденциальности от оператора, администратора БД, читателя резервных копий или скомпрометированного сервера. E2EE-пакеты и их инварианты не меняются; см. [руководство](docs/server-trusted.md) и [ADR 0023](docs/adr/0023-server-trusted-chat-mode.md).
+
 ## Documentation
 
 Documentation for Skopka.Chat **0.19.0**:
@@ -14,7 +16,14 @@ Documentation for Skopka.Chat **0.19.0**:
 
 ## Пакеты
 
-Версия `0.19.0` ещё не опубликована. Текущая ветка разработки добавляет первый серверный event-срез: envelope и
+Версия `0.20.0` ещё не опубликована; она выпускается отдельно после уже опубликованной `0.19.0`. Она добавляет серверный режим без
+сквозного шифрования для хостов, которые обязаны видеть переписку: `Skopka.Chat.ServerTrusted` (движок, права по
+сохранённому состоянию и политике хоста на каждой операции, лимиты, модерация, забвение), `Skopka.Chat.ServerTrusted.PostgreSql`
+(своя схема и миграции, блокировка строки беседы, outbox с metadata-only событиями, `LISTEN/NOTIFY` между репликами)
+и `Skopka.Chat.ServerTrusted.Blazor` (компоненты для Blazor Server с prerender). E2EE-протокол, форматы и пакеты не
+меняются; ни один E2EE-пакет не ссылается на новое семейство. См. [ADR 0023](docs/adr/0023-server-trusted-chat-mode.md).
+
+Версия `0.19.0` добавляет первый серверный event-срез: envelope и
 PostgreSQL Outbox фиксируются одной транзакцией, а отдельный optional
 `Skopka.Chat.Server.Kafka` публикует metadata-only событие с at-least-once
 семантикой. Синхронные HTTP-команды, polling/history и E2EE-форматы не меняются;
@@ -78,6 +87,12 @@ content-v4; обычный текст без упоминаний остаётс
 - `Skopka.Chat.Server.AspNetCore` — необязательные Minimal API endpoints для envelopes и attachment ciphertext с обязательной авторизацией и строгой привязкой user/device claims; без выбора формата токена или identity provider.
 - `Skopka.Chat.Persistence.PostgreSql` — EF Core 10/Npgsql, PostgreSQL migration, ограничения `bytea`, внешние ключи, индексы доставки и TTL cleanup.
 
+Серверный режим **без E2EE** (сервер читает сообщения):
+
+- `Skopka.Chat.ServerTrusted` — беседы 1:1 и малые группы на уровне пользователей, роли «пишет/наблюдатель», закрытие и повторное открытие, история с постраничным чтением, отметки «прочитано до», непрочитанные, жалобы с окном ±N для модератора и журналом доступа, скрытие, забвение, лимиты и хуки хоста; зависит только от `Skopka.Chat.Attachments`.
+- `Skopka.Chat.ServerTrusted.PostgreSql` — собственный DbContext в настраиваемой схеме, миграции, конкурентно-безопасное хранилище, outbox поверх существующего `ChatServerEventDispatcher`, мост `LISTEN/NOTIFY` и maintenance worker.
+- `Skopka.Chat.ServerTrusted.Blazor` — компоненты для `InteractiveServer`/`ServerPrerendered` с заменяемыми шаблонами, локализуемыми строками, CSS-переменными и счётчиком непрочитанного.
+
 Постоянная device identity и opt-in enrollment/rebind из `0.14.0` сохраняются: logout/re-login не меняет DeviceId, ключи и пути history/outbox. В `0.18.0` outer protocol-v1 и binding-v1 не менялись; content-v4 используется только текстом со структурированными упоминаниями. Ни binding, ни локальное шифрование не заменяют Auth, не восстанавливают потерянные ключи и не добавляют ratchet/forward secrecy. См. [инструкцию подключения](docs/device-identity.md) и [совместимость](docs/protocol-compatibility.md).
 
 ```mermaid
@@ -102,6 +117,7 @@ flowchart LR
 - [Браузерный клиент, encrypted vault и BFF](docs/browser.md)
 - [Боты у владельца и граница доверия](docs/bots.md)
 - [Руководство по адаптируемому UI](docs/ui.md)
+- [Серверный режим без E2EE](docs/server-trusted.md) и запускаемый пример `samples/Skopka.Chat.ServerTrusted.Sample` (Razor Pages + острова Blazor Server)
 - [Руководство по encrypted attachments](docs/attachments.md)
 - [Подготовка фото и видео](docs/media.md)
 - [Локальная история и синхронизация](docs/client-storage.md)
@@ -380,7 +396,7 @@ dotnet run --project samples/Skopka.Chat.Sample
 
 NuGet-пакеты создаются в `artifacts/packages`.
 
-PostgreSQL integration tests в четырёх проектах могут автоматически поднять изолированную PostgreSQL 18 через Testcontainers. Нужен запущенный Docker:
+PostgreSQL integration tests в пяти проектах могут автоматически поднять изолированную PostgreSQL 18 через Testcontainers. Нужен запущенный Docker:
 
 ```powershell
 $env:SKOPKA_CHAT_POSTGRES_TESTCONTAINERS = 'true'
@@ -389,13 +405,14 @@ dotnet test --project tests/Skopka.Chat.Persistence.PostgreSql.Tests
 dotnet test --project tests/Skopka.Chat.Attachments.Tests
 dotnet test --project tests/Skopka.Chat.Http.IntegrationTests
 dotnet test --project tests/Skopka.Chat.Binding.Tests
+dotnet test --project tests/Skopka.Chat.ServerTrusted.PostgreSql.Tests
 ```
 
 Каждая тестовая сборка получает собственный контейнер и удаляет его после выполнения. Для внешней одноразовой БД задайте `SKOPKA_CHAT_POSTGRES`; эта переменная имеет приоритет. Без connection string и флага Testcontainers DB-тесты корректно пропускаются; `SKOPKA_CHAT_POSTGRES_REQUIRED=true` превращает такой пропуск или недоступный Docker в ошибку release-gate.
 
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из двадцати четырёх пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускает core/DB/fuzz gates на Linux, MAUI Android/Windows и package-consumer gate на Windows, iOS/Mac Catalyst + trimming smoke на macOS и только после этого объединяет точный набор из двадцати семи пакетов. Используемые GitHub Actions закреплены полными commit SHA; workflow имеет только `contents: read`.
 
-Каждый CI build также воспроизводит сохранённый JSON/content/binding fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает двадцать четыре `.nupkg` вместе с двадцатью четырьмя `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
+Каждый CI build также воспроизводит сохранённый JSON/content/binding fuzz corpus, запускает короткую coverage-guided AFL++/SharpFuzz сессию, проверяет real-Kestrel request limits/cancellation и загружает двадцать семь `.nupkg` вместе с двадцатью семью `.snupkg`. Tag `v<SemVer>` запускает отдельный coordinated release: tag обязан принадлежать `main`, версия должна совпасть с `VersionPrefix`, вся версия должна быть свободна на NuGet.org, а после публикации создаётся GitHub Release. Настройка environment и ключа описана в [releasing.md](docs/releasing.md).
 
 PostgreSQL delivery остаётся at-least-once: конкурентные poller'ы до acknowledgement могут получить один и тот же конверт. Хранилище держит одну строку на `messageId`, первый ack атомарно побеждает, а typed client может использовать `IChatEventStore`/`ChatSyncCoordinator` для durable store-before-ack; `IReceivedMessageStore` остаётся низкоуровневой границей `ChatReceiver`. При одинаковом `acceptedAt` порядок стабилен по `messageId`.
 

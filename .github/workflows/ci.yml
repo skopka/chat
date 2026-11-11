@@ -65,6 +65,10 @@ jobs:
         run: dotnet test --project tests/Skopka.Chat.Binding.Tests --configuration Release --no-build --no-restore
         env: *postgres-test-environment
 
+      - name: Require server-trusted PostgreSQL concurrency, outbox and NOTIFY gate
+        run: dotnet test --project tests/Skopka.Chat.ServerTrusted.PostgreSql.Tests --configuration Release --no-build --no-restore
+        env: *postgres-test-environment
+
       - name: Install AFL++
         run: |
           sudo apt-get update
@@ -121,6 +125,9 @@ jobs:
             "Skopka.Chat.Bots.AspNetCore"
             "Skopka.Chat.Server.AspNetCore"
             "Skopka.Chat.Persistence.PostgreSql"
+            "Skopka.Chat.ServerTrusted"
+            "Skopka.Chat.ServerTrusted.PostgreSql"
+            "Skopka.Chat.ServerTrusted.Blazor"
           )
 
           for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
@@ -135,8 +142,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 22 || "$SNUPKG_COUNT" -ne 22 ]]; then
-            echo "Expected 22 packages and 22 symbol packages for ${PACKAGE_VERSION}, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 25 || "$SNUPKG_COUNT" -ne 25 ]]; then
+            echo "Expected 25 packages and 25 symbol packages for ${PACKAGE_VERSION}, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 
@@ -408,6 +415,9 @@ jobs:
             "Skopka.Chat.Bots.AspNetCore"
             "Skopka.Chat.Server.AspNetCore"
             "Skopka.Chat.Persistence.PostgreSql"
+            "Skopka.Chat.ServerTrusted"
+            "Skopka.Chat.ServerTrusted.PostgreSql"
+            "Skopka.Chat.ServerTrusted.Blazor"
           )
 
           for PACKAGE_ID in "${PACKAGE_IDS[@]}"; do
@@ -417,8 +427,8 @@ jobs:
 
           NUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.nupkg" | wc -l)
           SNUPKG_COUNT=$(find artifacts/packages -maxdepth 1 -type f -name "*.${PACKAGE_VERSION}.snupkg" | wc -l)
-          if [[ "$NUPKG_COUNT" -ne 24 || "$SNUPKG_COUNT" -ne 24 ]]; then
-            echo "Expected 24 packages and 24 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
+          if [[ "$NUPKG_COUNT" -ne 27 || "$SNUPKG_COUNT" -ne 27 ]]; then
+            echo "Expected 27 packages and 27 symbol packages, found $NUPKG_COUNT and $SNUPKG_COUNT." >&2
             exit 1
           fi
 

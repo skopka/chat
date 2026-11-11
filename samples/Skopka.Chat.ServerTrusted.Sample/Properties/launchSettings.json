@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Skopka.Chat.ServerTrusted.Sample": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5279",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

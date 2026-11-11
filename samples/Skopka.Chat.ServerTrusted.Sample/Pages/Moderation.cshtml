@@ -1,0 +1,50 @@
+@page
+@model ModerationModel
+@{
+    ViewData["Title"] = "Модерация";
+}
+<h1>Жалобы</h1>
+@if (Model.ReportIds.Count == 0)
+{
+    <p>Жалоб нет. Войдите учеником или родителем и пожалуйтесь на сообщение.</p>
+}
+<ul>
+    @foreach (var id in Model.ReportIds)
+    {
+        <li><a href="/Moderation?report=@id">Жалоба @id</a></li>
+    }
+</ul>
+@if (Model.Denied)
+{
+    <p class="warning">Нет доступа к окну этой жалобы.</p>
+}
+@if (Model.Window is { } window)
+{
+    <h2>Окно вокруг сообщения (каждое чтение записано в журнал)</h2>
+    <ol class="window">
+        @foreach (var item in window.Messages)
+        {
+            <li class="@(item.IsReportTarget ? "target" : null)">
+                <span>#@item.Message.Sequence @SampleUsers.NameOf(item.Message.AuthorUserId):</span>
+                <span>@(item.RetainedText ?? (item.IsErased ? "(содержимое стёрто)" : item.RetainedAttachments.Count > 0 ? $"(вложения: {item.RetainedAttachments.Count})" : "(без текста)"))</span>
+                @if (item.IsDeletedByAuthor) { <em>удалено автором</em> }
+                @if (item.IsHidden) { <em>скрыто</em> }
+                @if (item.PriorVersions.Count > 0) { <em>прежние версии: @string.Join(" | ", item.PriorVersions)</em> }
+                @if (item.IsReportTarget) { <strong>← жалоба</strong> }
+                <form method="post" asp-page-handler="Hide" class="inline">
+                    <input type="hidden" name="message" value="@item.Message.Id" />
+                    <input type="hidden" name="report" value="@window.Report.Id" />
+                    <input type="hidden" name="hidden" value="@(item.IsHidden ? "false" : "true")" />
+                    <button type="submit">@(item.IsHidden ? "Показать" : "Скрыть")</button>
+                </form>
+            </li>
+        }
+    </ol>
+}
+<h2>Журнал доступа</h2>
+<ul>
+    @foreach (var entry in Model.AccessLog)
+    {
+        <li>@entry.At.ToString("u", System.Globalization.CultureInfo.InvariantCulture) — @SampleUsers.NameOf(entry.ActorUserId) — @entry.Action — #@entry.FromSequence…#@entry.ToSequence</li>
+    }
+</ul>

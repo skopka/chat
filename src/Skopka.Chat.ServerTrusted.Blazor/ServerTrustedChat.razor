@@ -1,0 +1,305 @@
+<section @attributes="AdditionalAttributes" class="@RootClass" style="@Style" aria-busy="@(_model?.IsBusy == true ? "true" : "false")">
+    @if (_model is not { IsLoaded: true } model)
+    {
+        @if (_model?.Failure is ServerTrustedChatFailure.Unavailable)
+        {
+            <p class="skopka-chat__unavailable" role="status">@S.Unavailable</p>
+        }
+        else if (_model?.Failure is ServerTrustedChatFailure.Failed)
+        {
+            <p class="skopka-chat__failure" role="alert">@S.GenericFailure</p>
+        }
+    }
+    else
+    {
+        var observers = model.Observers;
+        @if (observers.Count > 0)
+        {
+            <p class="skopka-chat__observers" role="note">
+                <span class="skopka-chat__observers-prefix">@S.ObserversNotice</span>
+                <span class="skopka-chat__observers-list">@string.Join(", ", observers.Select(ResolveParticipantName))</span>
+            </p>
+        }
+
+        <div class="skopka-chat__timeline" role="log" aria-label="@S.Timeline" aria-live="polite">
+            @if (model.HasMoreBefore)
+            {
+                <button type="button" class="skopka-chat__load-older" disabled="@(!IsInteractive)" @onclick="LoadOlderAsync">@S.LoadOlder</button>
+            }
+
+            @if (model.Messages.Count == 0)
+            {
+                if (EmptyTemplate is null)
+                {
+                    <p class="skopka-chat__empty">@S.EmptyConversation</p>
+                }
+                else
+                {
+                    @EmptyTemplate
+                }
+            }
+            else
+            {
+                @foreach (var message in model.Messages)
+                {
+                    if (MessageTemplate is not null)
+                    {
+                        @MessageTemplate(CreateMessageContext(model, message))
+                        continue;
+                    }
+
+                    var own = model.IsOwn(message);
+                    <article @key="message.Id" class="@MessageClass(message, own)">
+                        <header class="skopka-chat-message__header">
+                            <span class="skopka-chat-message__sender">@ResolveAuthorName(message)</span>
+                            <span class="skopka-chat-message__time">
+                                <time datetime="@message.CreatedAt.ToString("O", CultureInfo.InvariantCulture)">@FormatTime(message.CreatedAt)</time>
+                                @if (message.EditedAt is not null && !message.IsTombstone)
+                                {
+                                    <span class="skopka-chat-message__edited">@S.Edited</span>
+                                }
+                            </span>
+                        </header>
+
+                        @if (message.IsTombstone)
+                        {
+                            <p class="skopka-chat-message__tombstone">@TombstoneText(message.Tombstone)</p>
+                        }
+                        else
+                        {
+                            @if (message.ReplyToMessageId is { } replyId)
+                            {
+                                <div class="skopka-chat-message__reply">
+                                    <span class="skopka-chat-message__reply-label">@S.ReplyTo</span>
+                                    <span class="skopka-chat-message__reply-text">@ReplySnippet(model, replyId)</span>
+                                </div>
+                            }
+
+                            @if (message.Text is not null)
+                            {
+                                if (MessageBodyTemplate is null)
+                                {
+                                    <p class="skopka-chat-message__text">@message.Text</p>
+                                }
+                                else
+                                {
+                                    <div class="skopka-chat-message__body">@MessageBodyTemplate(message)</div>
+                                }
+                            }
+
+                            @if (message.Attachments.Count > 0)
+                            {
+                                <ul class="skopka-chat-message__attachments" aria-label="@S.Attachments">
+                                    @foreach (var attachment in message.Attachments)
+                                    {
+                                        var url = ResolveAttachmentUrl(attachment);
+                                        <li @key="attachment.Id">
+                                            @if (AttachmentTemplate is not null)
+                                            {
+                                                @AttachmentTemplate(new ServerTrustedAttachmentContext(message, attachment, url))
+                                            }
+                                            else
+                                            {
+                                                <span class="skopka-chat-attachment">
+                                                    @if (url is null)
+                                                    {
+                                                        <span class="skopka-chat-attachment__name">@AttachmentName(attachment)</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <a class="skopka-chat-attachment__name" href="@url" rel="noopener noreferrer" target="_blank">@AttachmentName(attachment)</a>
+                                                    }
+                                                    <span class="skopka-chat-attachment__size">@FormatSize(attachment.Length)</span>
+                                                </span>
+                                            }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+
+                            @if (message.References.Count > 0)
+                            {
+                                <ul class="skopka-chat-message__references" aria-label="@S.References">
+                                    @foreach (var reference in message.References)
+                                    {
+                                        <li>@RenderReference(reference)</li>
+                                    }
+                                </ul>
+                            }
+                        }
+
+                        @if (IsInteractive)
+                        {
+                            @if (_confirmDeleteId == message.Id && CanDelete(model, message))
+                            {
+                                <div class="skopka-chat-message__confirm" role="group" aria-label="@S.ConfirmDelete">
+                                    <span>@S.ConfirmDelete</span>
+                                    <button type="button" class="skopka-chat-message__action skopka-chat-message__action--danger" @onclick="() => DeleteAsync(message.Id)">@S.Delete</button>
+                                    <button type="button" class="skopka-chat-message__action" @onclick="CancelDelete">@S.Cancel</button>
+                                </div>
+                            }
+                            else if (_reportingId == message.Id && CanReport(model, message))
+                            {
+                                <div class="skopka-chat-report" role="group" aria-label="@S.ReportReasonsTitle">
+                                    <label class="skopka-chat-report__field">
+                                        <span>@S.ReportReasonsTitle</span>
+                                        <select class="skopka-chat-report__reason" value="@_reportReason" @onchange="OnReportReasonChanged">
+                                            @foreach (var reason in ReportReasons!)
+                                            {
+                                                <option value="@reason">@ResolveReasonLabel(reason)</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <label class="skopka-chat-report__field">
+                                        <span>@S.ReportComment</span>
+                                        <textarea class="skopka-chat-report__comment" maxlength="@ServerTrustedChatLimits.MaxReportCommentLength" value="@_reportComment" @oninput="OnReportCommentInput"></textarea>
+                                    </label>
+                                    <div class="skopka-chat-message__actions">
+                                        <button type="button" class="skopka-chat-message__action" @onclick="() => SubmitReportAsync(message.Id)">@S.SubmitReport</button>
+                                        <button type="button" class="skopka-chat-message__action" @onclick="CancelReport">@S.Cancel</button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                var canEdit = CanEdit(model, message);
+                                var canDelete = CanDelete(model, message);
+                                var canReply = CanReply(model, message);
+                                var canReport = CanReport(model, message);
+                                var reported = !own && model.IsReported(message.Id);
+                                @if (canEdit || canDelete || canReply || canReport || reported)
+                                {
+                                    <div class="skopka-chat-message__actions" role="group" aria-label="@S.MessageActions">
+                                        @if (canReply)
+                                        {
+                                            <button type="button" class="skopka-chat-message__action" @onclick="() => BeginReply(message.Id)">@S.Reply</button>
+                                        }
+                                        @if (canEdit)
+                                        {
+                                            <button type="button" class="skopka-chat-message__action" @onclick="() => BeginEdit(message.Id)">@S.Edit</button>
+                                        }
+                                        @if (canDelete)
+                                        {
+                                            <button type="button" class="skopka-chat-message__action" @onclick="() => ConfirmDelete(message.Id)">@S.Delete</button>
+                                        }
+                                        @if (reported)
+                                        {
+                                            <span class="skopka-chat-message__reported" role="status">@S.ReportSent</span>
+                                        }
+                                        else if (canReport)
+                                        {
+                                            <button type="button" class="skopka-chat-message__action" @onclick="() => BeginReport(message.Id)">@S.Report</button>
+                                        }
+                                    </div>
+                                }
+                            }
+                        }
+                    </article>
+                }
+            }
+        </div>
+
+        @if (FailureText(model.Failure) is { } failure)
+        {
+            <p class="skopka-chat__failure" role="alert">@failure</p>
+        }
+
+        @if (model.IsClosed)
+        {
+            <p class="skopka-chat__closed" role="status">@S.ConversationClosed</p>
+        }
+        else if (model.IsObserver)
+        {
+            <p class="skopka-chat__read-only" role="note">@S.ReadOnlyNotice</p>
+        }
+        else if (ComposerTemplate is not null)
+        {
+            @ComposerTemplate(CreateComposerContext(model))
+        }
+        else
+        {
+            var editTarget = model.EditTarget is { } editId ? model.FindMessage(editId) : null;
+            var replyTarget = model.ReplyTarget is { } replyTargetId ? model.FindMessage(replyTargetId) : null;
+            <div class="skopka-chat-composer">
+                @if (editTarget is not null)
+                {
+                    <div class="skopka-chat-composer__reply">
+                        <div>
+                            <strong>@S.EditingMessage</strong>
+                            <span>@Snippet(editTarget)</span>
+                        </div>
+                        <button type="button" class="skopka-chat-composer__cancel" disabled="@(!IsInteractive)" @onclick="Cancel">@S.Cancel</button>
+                    </div>
+                }
+                else if (replyTarget is not null)
+                {
+                    <div class="skopka-chat-composer__reply">
+                        <div>
+                            <strong>@S.ReplyTo</strong>
+                            <span>@Snippet(replyTarget)</span>
+                        </div>
+                        <button type="button" class="skopka-chat-composer__cancel" disabled="@(!IsInteractive)" @onclick="Cancel">@S.Cancel</button>
+                    </div>
+                }
+
+                @if (!model.IsEditing && (model.DraftReferences.Count > 0 || model.PendingAttachments.Count > 0 || model.IsUploading))
+                {
+                    <ul class="skopka-chat-composer__chips" aria-label="@S.Attachments">
+                        @foreach (var reference in model.DraftReferences)
+                        {
+                            <li class="skopka-chat-chip skopka-chat-chip--reference">
+                                @RenderReference(reference)
+                                <button type="button"
+                                        class="skopka-chat-chip__remove"
+                                        aria-label="@($"{S.RemoveReference}: {ResolveReferenceLabel(reference)}")"
+                                        disabled="@(!IsInteractive)"
+                                        @onclick="() => RemoveReference(reference)">×</button>
+                            </li>
+                        }
+                        @foreach (var attachment in model.PendingAttachments)
+                        {
+                            <li class="skopka-chat-chip skopka-chat-chip--attachment" @key="attachment.Id">
+                                <span class="skopka-chat-attachment__name">@AttachmentName(attachment)</span>
+                                <span class="skopka-chat-attachment__size">@FormatSize(attachment.Length)</span>
+                                <button type="button"
+                                        class="skopka-chat-chip__remove"
+                                        aria-label="@($"{S.RemoveAttachment}: {AttachmentName(attachment)}")"
+                                        disabled="@(!IsInteractive)"
+                                        @onclick="() => RemoveAttachment(attachment.Id)">×</button>
+                            </li>
+                        }
+                        @if (model.IsUploading)
+                        {
+                            <li class="skopka-chat-chip skopka-chat-chip--uploading" role="status">@S.Uploading</li>
+                        }
+                    </ul>
+                }
+
+                <div class="skopka-chat-composer__row">
+                    @if (AttachmentsEnabled(model))
+                    {
+                        <label class="skopka-chat-composer__file">
+                            <span>@S.AttachFile</span>
+                            <InputFile @key="_fileInputGeneration"
+                                       class="skopka-chat-composer__file-input"
+                                       accept="@AttachmentAccept"
+                                       disabled="@(!IsInteractive || !model.CanUpload)"
+                                       OnChange="OnFileSelectedAsync" />
+                        </label>
+                    }
+                    <textarea class="skopka-chat-composer__input"
+                              aria-label="@S.Composer"
+                              placeholder="@S.ComposerPlaceholder"
+                              maxlength="@model.MaxTextLength"
+                              disabled="@(!IsInteractive || model.IsBusy)"
+                              value="@model.Draft"
+                              @oninput="OnDraftInput"></textarea>
+                    <button type="button"
+                            class="skopka-chat-composer__send"
+                            disabled="@(!IsInteractive || !model.CanSend)"
+                            @onclick="SendAsync">@(model.IsEditing ? S.Save : S.Send)</button>
+                </div>
+            </div>
+        }
+    }
+</section>

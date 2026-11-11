@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Skopka.Chat.ServerTrusted.PostgreSql</PackageId>
+    <Description>PostgreSQL storage, outbox, LISTEN/NOTIFY live bridge and maintenance workers for the Skopka.Chat server-trusted (no E2EE) mode.</Description>
+    <PackageTags>chat;server-trusted;postgresql;outbox;skopka</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Skopka.Chat.ServerTrusted\Skopka.Chat.ServerTrusted.csproj" />
+    <ProjectReference Include="..\Skopka.Chat.Server\Skopka.Chat.Server.csproj" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+</Project>
