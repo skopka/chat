@@ -7,11 +7,11 @@ Skopka.Chat follows the coordinated NuGet publication model used by the maintain
 In the GitHub repository settings:
 
 1. Create an environment named `release`. Configure required reviewers if the organization uses manual release approval.
-2. Add an environment secret named `NUGET_API_KEY` with permission to publish only the `Skopka.Chat.*` package IDs on NuGet.org.
+2. Configure a NuGet.org Trusted Publishing policy for the `Skopka` account with repository owner `skopka`, repository `chat`, workflow `release.yml` and environment `release`. The publish job exchanges its GitHub OIDC token (`id-token: write`) through `NuGet/login` for a short-lived API key; no long-lived `NUGET_API_KEY` secret is used, and an old one should be deleted. The policy must cover every coordinated package ID, including first-time IDs such as `Skopka.Chat.ServerTrusted*`.
 3. Keep workflow token permissions at their checked-in minimum. The NuGet job needs no GitHub write permission; only the final GitHub Release job receives `contents: write`.
 4. Protect `main` and require the CI workflow before merging. A release tag must point to a commit reachable from `origin/main`.
 
-Do not store the NuGet key in repository secrets, local files, shell history, workflow artifacts, or package metadata when an environment-scoped secret is available.
+Never store a NuGet API key in repository or environment secrets, local files, shell history, workflow artifacts, or package metadata; the short-lived Trusted Publishing key exists only inside the publish job.
 
 ## Release preparation
 

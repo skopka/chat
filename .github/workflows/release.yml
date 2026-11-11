@@ -479,6 +479,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: release
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out release metadata
@@ -546,11 +549,17 @@ jobs:
             fi
           done
 
+      - name: Authenticate with NuGet.org
+        id: nuget_login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: Skopka
+
       - name: Push every package to NuGet.org
         id: nuget_push
         shell: bash
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
           RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
         run: |
           PACKAGE_IDS=(

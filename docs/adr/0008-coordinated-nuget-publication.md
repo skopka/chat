@@ -13,7 +13,7 @@ CI created seven local packages but there was no guarded publication path, no sy
 - Use one `VersionPrefix` for all packages. A `v<SemVer>` tag must be reachable from `main`; its stable base must match `VersionPrefix`.
 - Validate formatting, all tests, required PostgreSQL paths, fuzz smoke, dependency audit, exact package set, and package consumer before publication.
 - Before pushing anything, require that the version is absent for every `Skopka.Chat.*` ID on NuGet.org.
-- Publish in dependency order from a protected `release` environment using only `NUGET_API_KEY`. Wait for all IDs to become visible, then create a GitHub Release with package and symbol artifacts.
+- Publish in dependency order from a protected `release` environment using only a short-lived key obtained through NuGet.org Trusted Publishing (GitHub OIDC, `NuGet/login`); this replaced the original long-lived `NUGET_API_KEY` secret in 0.20.0. Wait for all IDs to become visible, then create a GitHub Release with package and symbol artifacts.
 - Do not use `--skip-duplicate` for coordinated releases. A partial publication consumes the version and requires a new patch release.
 
 ## Consequences

@@ -215,7 +215,7 @@ Before a requested release or version commit:
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
 6. Confirm exactly twenty-seven versioned `.nupkg` and twenty-seven matching `.snupkg` files were produced in `artifacts/packages`, run core, browser and MAUI package consumers, and ensure the working tree is clean.
 
-Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and using `NUGET_API_KEY`. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
+Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and exchanging its GitHub OIDC token for a short-lived NuGet key through Trusted Publishing (`NuGet/login`); no long-lived API key secret is used. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
 
 Use conventional, focused commit subjects such as `feat: ...`, `fix: ...`, `test: ...`, or `docs: ...`. Do not amend, force-push, reset, or rewrite history without explicit authorization. Do not push or publish merely because a local commit/package was requested.
 
