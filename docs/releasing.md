@@ -77,8 +77,43 @@ NuGet packages cannot be overwritten. If publication begins and only part of the
 
 If the push succeeded but some packages are still not indexed when the wait ends, the job fails with a message that NuGet.org accepted every package. That is not a partial publication: do not push again, do not re-run the failed jobs (the "completely unpublished version" check would now fail) and do not bump the version. Check the packages' validation status on NuGet.org, wait until all IDs appear, then create the GitHub Release for the tag manually and attach the `.nupkg` and `.snupkg` files from the run's `release-packages` artifact. A partial publication is only the case where the push itself failed after NuGet.org accepted some packages; the job reports that explicitly.
 
-Creating packages locally, uploading CI artifacts, or creating a Git commit does not authorize tag creation or publication. A release requires an explicit user decision.
+Creating packages locally, uploading CI artifacts, or creating a Git commit does not authorize library tag creation or NuGet publication. A package release requires an explicit user decision. Products documentation publication follows the separate standing instruction below.
 
 ## Products documentation
 
 Follow the Products documentation synchronization requirements in [AGENTS.md](../AGENTS.md#products-documentation-synchronization) and the canonical [Products workflow](https://git.skopka.ru/skopka/products/src/branch/main/docs/documentation-workflow.md). Prepare consumer-facing documentation before release, then verify the published tag and all packages before updating the Products pin and deploying the site. Report any remaining publication or deployment stage.
+
+## Publish the Products update immediately
+
+The owner has authorized this documentation publication step. Unless the user
+explicitly asks for drafts/local changes or no publication, finish a verified
+public documentation update in the same task:
+
+1. Confirm the documented Git tag/full SHA and the complete coordinated NuGet
+   package set are available. Update the affected Products source pin, RU/EN
+   pages, examples and navigation; build and review them according to the
+   [canonical Products workflow](https://git.skopka.ru/skopka/products/src/branch/main/docs/documentation-workflow.md).
+2. In the `products` repository, inspect the working tree and fetch remote `main`
+   and tags. Preserve unrelated edits and drafts. Commit and push only reviewed,
+   release-ready documentation changes; do not stage everything, reset or stash
+   someone else's work. Ensure the tagged commit contains no unfinished work.
+3. Select an unused stable `vX.Y.Z` greater than both the published version in
+   `https://products.skopka.ru/release.json` and existing stable Products tags
+   (compare semantic versions, not strings). Site versions are independent of
+   package versions. Create an annotated tag on the exact reviewed Products
+   commit and push it to `products`, not to this library or `build-projects`.
+4. Wait for the Products release workflow to succeed and for the public
+   `/release.json` to match both the site tag and full Products commit SHA.
+   The tag triggers build and deployment directly; no infra version bump or
+   scheduled infrastructure reconciliation is needed.
+5. Verify the affected public RU/EN overview, guide chapters and API pages,
+   including README/NuGet links. Report the package version/tag/SHA, Products
+   tag/SHA, workflow result and live URLs. A queued or failed deployment is not
+   complete: diagnose it and report any concrete blocker rather than promising
+   an unspecified later publication.
+
+Never move, delete or reuse an existing tag for changed content. A transient
+failure may be retried using the same unchanged tag; corrected content requires
+another higher site version. This instruction does not authorize new library or
+NuGet releases. Do not create an empty Products release for instructions-only
+changes or an update with no published documentation changes.

@@ -202,7 +202,20 @@ For consumer-visible API, options, defaults, contracts, package, security, or mi
 
 After the GitHub tag and all NuGet packages are published, verify them and update this family's released tag and full commit SHA in Products `scripts/fetch-sources.sh`; never pin moving `main` or present an unreleased feature as available. Review Products `README.md`, `chat/index.md`, `en/chat/index.md`, `guides/ru/chat.md` and its subpages, `guides/en/chat.md` and its subpages, `api-index/chat/index.md`, and navigation as needed. Run `sh scripts/build.sh` in Products to regenerate API only through DocFX and build the site; compile working examples against the supported release. MAUI API is excluded from generated API, so cover it in manual guides.
 
-After deployment, verify the live Russian and English overview, guide and API pages at https://products.skopka.ru, including GitHub README and NuGet links and access without Basic Auth. Report the package version, tag and full SHA, Products commit, and verified URLs. If publication or deployment has not happened, report the remaining stage rather than claiming documentation is complete. Publication remains governed by the existing release authorization.
+After deployment, verify the live Russian and English overview, guide and API pages at https://products.skopka.ru, including GitHub README and NuGet links and access without Basic Auth. Report the package version, tag and full SHA, Products commit, and verified URLs. If publication or deployment has not happened, report the remaining stage rather than claiming documentation is complete. Complete site publication under the standing documentation authorization below; library/NuGet release authorization remains separate.
+
+## Immediate Products publication
+
+The owner has authorized publication of reviewed documentation updates: after
+updating and verifying the public Products documentation for released packages,
+commit and push the scoped changes in `products`, create and push a new annotated
+stable `vX.Y.Z` tag there, and verify the deployment in the same task. Follow
+[the site release checklist](docs/releasing.md#publish-the-products-update-immediately)
+and the canonical Products workflow. Do not stop at a local build or postpone the
+tag to another task. Honor an explicit draft-only or no-publication request.
+This standing instruction covers the documentation site only; it does not
+authorize a library/NuGet release. Instructions-only changes that do not affect
+published pages require no empty site release.
 
 ## Release and Git hygiene
 
@@ -215,7 +228,7 @@ Before a requested release or version commit:
 5. Recreate packages after that commit so NuGet `<repository commit>` metadata points at the release commit, then inspect at least one `.nuspec`.
 6. Confirm exactly twenty-seven versioned `.nupkg` and twenty-seven matching `.snupkg` files were produced in `artifacts/packages`, run core, browser and MAUI package consumers, and ensure the working tree is clean.
 
-Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and exchanging its GitHub OIDC token for a short-lived NuGet key through Trusted Publishing (`NuGet/login`); no long-lived API key secret is used. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a release tag unless the user explicitly requests publication.
+Publication is performed only by `.github/workflows/release.yml` for an explicit `v<SemVer>` tag reachable from `main`. The workflow validates the complete coordinated set before entering the protected `release` environment and exchanging its GitHub OIDC token for a short-lived NuGet key through Trusted Publishing (`NuGet/login`); no long-lived API key secret is used. Never use `--skip-duplicate` for a coordinated release or manually republish a partial version; advance to a new patch version. Do not create or push a library release tag unless the user explicitly requests package publication. Products site tags follow the separate standing documentation instruction above.
 
 Use conventional, focused commit subjects such as `feat: ...`, `fix: ...`, `test: ...`, or `docs: ...`. Do not amend, force-push, reset, or rewrite history without explicit authorization. Do not push or publish merely because a local commit/package was requested.
 
