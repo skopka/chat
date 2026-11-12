@@ -8,7 +8,7 @@ Skopka.Chat — переиспользуемый транспорт-незави
 
 ## Documentation
 
-Documentation for Skopka.Chat **0.19.0**:
+Documentation for Skopka.Chat **0.21.0**:
 
 - [Product overview](https://products.skopka.ru/en/chat/index.html)
 - [Guide (English)](https://products.skopka.ru/guides/en/chat.html) · [Руководство (русский)](https://products.skopka.ru/guides/ru/chat.html)
