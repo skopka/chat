@@ -45,6 +45,10 @@ public sealed partial class ServerTrustedChat : ComponentBase, IAsyncDisposable
     private string? _reportReason;
     private string? _reportComment;
     private int _fileInputGeneration;
+    private bool _draftParametersSeen;
+    private string? _seenDraftReferenceType;
+    private string? _seenDraftReferenceId;
+    private HostReference? _hostReference;
 
     /// <summary>Conversation to show; every read and write is authorized by the engine.</summary>
     [Parameter, EditorRequired]
@@ -144,13 +148,17 @@ public sealed partial class ServerTrustedChat : ComponentBase, IAsyncDisposable
     public long? MaxAttachmentBytes { get; set; }
 
     /// <summary>
-    /// Host reference type added to the draft on first load, for example <c>lesson</c>. Ignored unless both it and
-    /// <see cref="DraftReferenceId"/> are valid; the engine still authorizes it on send.
+    /// Host reference type placed in the draft, for example <c>lesson</c>, together with <see cref="DraftReferenceId"/>.
+    /// A change of either value on a live component replaces the host-placed reference without reloading the history or
+    /// touching the draft text, pending attachments, reply target or an edit in progress; an empty or invalid pair removes
+    /// it. Re-rendering with unchanged values changes nothing, so a reference the user removed or already sent is not
+    /// re-added. To place the same reference again (for example "ask about this task" twice), call
+    /// <see cref="SetDraftReferenceAsync"/>. The engine still authorizes the reference on send.
     /// </summary>
     [Parameter]
     public string? DraftReferenceType { get; set; }
 
-    /// <summary>Host reference identifier added to the draft together with <see cref="DraftReferenceType"/>.</summary>
+    /// <summary>Host reference identifier placed in the draft together with <see cref="DraftReferenceType"/>.</summary>
     [Parameter]
     public string? DraftReferenceId { get; set; }
 
@@ -171,6 +179,9 @@ public sealed partial class ServerTrustedChat : ComponentBase, IAsyncDisposable
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
     private ServerTrustedChatStrings S => Strings ?? ServerTrustedChatStrings.Default;
+
+    // Tests prove that a draft-reference change keeps the same model (no history reload).
+    internal ServerTrustedChatViewModel? Model => _model;
 
     private bool IsInteractive => RendererInfo.IsInteractive;
 
@@ -203,6 +214,21 @@ public sealed partial class ServerTrustedChat : ComponentBase, IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(MaxAttachmentBytes));
         }
 
+        // Compared with the previous parameter values, not with the draft: parents re-render often (delegate
+        // parameters), and an unchanged pair must not re-add a reference the user removed or already sent.
+        if (!_draftParametersSeen ||
+            !string.Equals(DraftReferenceType, _seenDraftReferenceType, StringComparison.Ordinal) ||
+            !string.Equals(DraftReferenceId, _seenDraftReferenceId, StringComparison.Ordinal))
+        {
+            _draftParametersSeen = true;
+            _seenDraftReferenceType = DraftReferenceType;
+            _seenDraftReferenceId = DraftReferenceId;
+            _hostReference = ServerTrustedChatValidation.IsReferenceType(DraftReferenceType) && ServerTrustedChatValidation.IsReferenceId(DraftReferenceId)
+                ? new HostReference(DraftReferenceType!, DraftReferenceId!)
+                : null;
+            _model?.SetHostReference(_hostReference);
+        }
+
         if (_model is not null && _model.ConversationId.Value == ConversationId && _model.UserId == UserId)
         {
             return;
@@ -217,6 +243,10 @@ public sealed partial class ServerTrustedChat : ComponentBase, IAsyncDisposable
         _confirmDeleteId = null;
         _reportingId = null;
         model.Changed += OnModelChanged;
+
+        // Placed before loading: draft references survive loading and restoring, so a parameter change or a
+        // SetDraftReferenceAsync call that arrives while the history is still loading is applied and never overwritten.
+        model.SetHostReference(_hostReference);
 
         _state ??= Services.GetService<PersistentComponentState>();
         if (IsInteractive)
@@ -242,11 +272,37 @@ public sealed partial class ServerTrustedChat : ComponentBase, IAsyncDisposable
                 _persisting = _state.RegisterOnPersisting(PersistAsync);
             }
         }
+    }
 
-        if (ServerTrustedChatValidation.IsReferenceType(DraftReferenceType) && ServerTrustedChatValidation.IsReferenceId(DraftReferenceId))
+    /// <summary>
+    /// Places <paramref name="reference"/> in the draft as the host reference, replacing the one placed earlier by this
+    /// method or by <see cref="DraftReferenceType"/>/<see cref="DraftReferenceId"/> (the last call or parameter change
+    /// wins); null removes it. The draft text, pending attachments, reply target and an edit in progress are kept, the
+    /// history is not reloaded, and while an own message is being edited the reference waits for the next new message.
+    /// Unlike the parameters, calling it again with the same reference places it again after the user removed it or a
+    /// sent message carried it; while it is still in the draft, nothing changes. Safe to call from any thread, for
+    /// example from a host <c>[JSInvokable]</c> method; the engine authorizes the reference again on send.
+    /// </summary>
+    /// <returns>
+    /// False when the component has not received its parameters yet or was disposed, the reference is invalid or the
+    /// draft already holds <see cref="ServerTrustedChatLimits.MaxHostReferences"/> other references; the draft is then
+    /// unchanged. A call made while the history is still loading is kept.
+    /// </returns>
+    public async Task<bool> SetDraftReferenceAsync(HostReference? reference)
+    {
+        var applied = false;
+        await InvokeAsync(() =>
         {
-            model.AddReference(new HostReference(DraftReferenceType!, DraftReferenceId!));
-        }
+            if (_disposed || _model is not { } model || !model.SetHostReference(reference))
+            {
+                return;
+            }
+
+            // Remembered for a model created later, for example after ConversationId changes.
+            _hostReference = reference;
+            applied = true;
+        });
+        return applied;
     }
 
     /// <inheritdoc />

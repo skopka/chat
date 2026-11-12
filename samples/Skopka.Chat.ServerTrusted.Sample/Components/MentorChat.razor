@@ -1,5 +1,9 @@
-@* Host wrapper: islands accept only simple values, so delegates and options are set here. *@
-<ServerTrustedChat ConversationId="ConversationId"
+@* Host wrapper: islands accept only simple values, so delegates and options are set here. "Ask in chat" buttons
+   outside the island reach AskAboutAsync through chat-ask.js; the draft reference changes without recreating the chat. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+<ServerTrustedChat @ref="_chat"
+                   ConversationId="ConversationId"
                    UserId="UserId"
                    Strings="ServerTrustedChatStrings.Russian"
                    CssClass="sample-chat"
@@ -26,4 +30,43 @@
 
     [Parameter]
     public string? LessonId { get; set; }
+
+    private ServerTrustedChat? _chat;
+
+    private DotNetObjectReference<MentorChat>? _self;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && RendererInfo.IsInteractive)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("sampleChatAsk.register", _self);
+        }
+    }
+
+    /// <summary>Places the task in the draft; the engine authorizes the reference again on send.</summary>
+    [JSInvokable]
+    public async Task AskAboutAsync(string type, string id)
+    {
+        if (_chat is not null && type == "task" && ServerTrustedChatValidation.IsReferenceId(id))
+        {
+            await _chat.SetDraftReferenceAsync(new HostReference(type, id));
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_self is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("sampleChatAsk.unregister", _self);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            _self.Dispose();
+        }
+    }
 }

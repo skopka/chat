@@ -319,6 +319,19 @@ internal sealed class InteractiveTestRenderer : Renderer
             return id;
         });
 
+    /// <summary>Creates a root component without rendering it, so a test can call its public methods.</summary>
+    public Task<(TComponent Component, int Id)> AttachAsync<TComponent>()
+        where TComponent : IComponent =>
+        Dispatcher.InvokeAsync(() =>
+        {
+            var component = (TComponent)InstantiateComponent(typeof(TComponent));
+            return (component, AssignRootComponentId(component));
+        });
+
+    /// <summary>Sets (or re-sets) root parameters on an existing component, like a parent re-render.</summary>
+    public Task SetParametersAsync(int componentId, Dictionary<string, object?> parameters) =>
+        Dispatcher.InvokeAsync(() => RenderRootComponentAsync(componentId, ParameterView.FromDictionary(parameters)));
+
     protected override void HandleException(Exception exception)
     {
         lock (Exceptions)

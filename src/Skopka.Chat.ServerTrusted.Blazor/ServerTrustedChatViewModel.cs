@@ -58,6 +58,8 @@ public sealed class ServerTrustedChatViewModel
     private readonly List<HostReference> _references = [];
     private TrustedAttachmentInfo[] _pendingAttachmentsSnapshot = [];
     private HostReference[] _referencesSnapshot = [];
+    private HostReference? _hostReference;
+    private bool _hostReferenceOwned;
     private long _readThrough;
     private ServerTrustedChatFailure _failure;
     private bool _isBusy;
@@ -757,6 +759,7 @@ public sealed class ServerTrustedChatViewModel
 
                 _pendingAttachments.RemoveAll(item => attachments.Contains(item));
                 _references.RemoveAll(item => references.Contains(item));
+                ReleaseHostReferenceIfGoneLocked();
                 RebuildDraftLocked();
 
                 if (_replyTo == replyTo)
@@ -883,15 +886,14 @@ public sealed class ServerTrustedChatViewModel
             }
 
             _references.Add(reference);
-            _pendingClientMessageId = null;
-            RebuildDraftLocked();
+            DraftReferencesChangedLocked();
         }
 
         RaiseChanged();
         return true;
     }
 
-    /// <summary>Removes a host reference from the draft.</summary>
+    /// <summary>Removes a host reference from the draft, including the one placed by <see cref="SetHostReference"/>.</summary>
     public bool RemoveReference(HostReference reference)
     {
         ArgumentNullException.ThrowIfNull(reference);
@@ -902,8 +904,7 @@ public sealed class ServerTrustedChatViewModel
                 return false;
             }
 
-            _pendingClientMessageId = null;
-            RebuildDraftLocked();
+            DraftReferencesChangedLocked();
         }
 
         RaiseChanged();
@@ -921,11 +922,108 @@ public sealed class ServerTrustedChatViewModel
             }
 
             _references.Clear();
-            _pendingClientMessageId = null;
-            RebuildDraftLocked();
+            DraftReferencesChangedLocked();
         }
 
         RaiseChanged();
+    }
+
+    /// <summary>
+    /// The draft reference placed by the host through <see cref="SetHostReference"/>, or null. It becomes null when the
+    /// user removes it, when <see cref="ClearReferences"/> runs or when a sent message carried it.
+    /// </summary>
+    public HostReference? HostReference
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _hostReference;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Replaces the host-placed draft reference (one slot): the reference previously placed through this method leaves
+    /// the draft and <paramref name="reference"/> takes its place; null only removes it. References added otherwise
+    /// (<see cref="AddReference"/>) are never removed, and a reference already in the draft is adopted without a
+    /// duplicate. Draft text, pending attachments, the reply target and an edit in progress are kept; while editing, the
+    /// reference belongs to the next new message, never to the edit. Repeating the current reference changes nothing.
+    /// </summary>
+    /// <returns>
+    /// False, with the draft unchanged, when the reference is invalid or the draft already holds
+    /// <see cref="ServerTrustedChatLimits.MaxHostReferences"/> other references; the engine authorizes it again on send.
+    /// </returns>
+    public bool SetHostReference(HostReference? reference)
+    {
+        if (reference is not null &&
+            (!ServerTrustedChatValidation.IsReferenceType(reference.Type) || !ServerTrustedChatValidation.IsReferenceId(reference.Id)))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (Equals(reference, _hostReference))
+            {
+                return true;
+            }
+
+            var ownedPrevious = _hostReference is not null && _hostReferenceOwned;
+            if (reference is not null && !_references.Contains(reference))
+            {
+                var free = ServerTrustedChatLimits.MaxHostReferences - _references.Count + (ownedPrevious ? 1 : 0);
+                if (free <= 0)
+                {
+                    return false;
+                }
+            }
+
+            var listChanged = ownedPrevious && _references.Remove(_hostReference!);
+            _hostReference = reference;
+            _hostReferenceOwned = false;
+            if (reference is not null && !_references.Contains(reference))
+            {
+                _references.Add(reference);
+                _hostReferenceOwned = true;
+                listChanged = true;
+            }
+
+            if (listChanged)
+            {
+                DraftReferencesChangedLocked();
+            }
+        }
+
+        RaiseChanged();
+        return true;
+    }
+
+    // The host slot is either empty or present in the draft: a removed or sent host reference frees it.
+    private void ReleaseHostReferenceIfGoneLocked()
+    {
+        if (_hostReference is not null && !_references.Contains(_hostReference))
+        {
+            _hostReference = null;
+            _hostReferenceOwned = false;
+        }
+    }
+
+    // A changed reference set is a different logical send: neither the live nor the stashed client message ID may be
+    // reused, or a retry would conflict with the fingerprint of the earlier attempt.
+    private void DraftReferencesChangedLocked()
+    {
+        ReleaseHostReferenceIfGoneLocked();
+        if (_editing is null)
+        {
+            _pendingClientMessageId = null;
+        }
+        else
+        {
+            _stashedPendingClientMessageId = null;
+        }
+
+        RebuildDraftLocked();
     }
 
     /// <summary>Saves the edited draft to the edit target and restores the previous draft.</summary>

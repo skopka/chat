@@ -250,6 +250,105 @@ was opened from. `ReferenceLabel`, `ReferenceUrl` and `ReferenceTemplate` contro
 emitted only for relative or `http(s)` URLs. Removing a pending upload only drops it from the draft; its blob is
 deleted by maintenance after `PendingAttachmentTtl`.
 
+### Changing the draft reference of a live chat
+
+The draft has one host-placed reference slot. Replacing it never recreates the component or reloads the history, and
+keeps the typed text, pending attachments, the reply target and an edit in progress. The reference placed earlier
+leaves the draft and the new one takes its place; references added otherwise (for example from a `ComposerTemplate`
+through `ServerTrustedChatViewModel.AddReference`) stay, and a reference already in the draft is adopted rather than
+duplicated. While an own message is being edited, the reference is hidden and belongs to the next new message, never
+to the edit. The draft never holds more than `ServerTrustedChatLimits.MaxHostReferences` references: when the other
+references already fill it, the host reference is refused and the draft stays unchanged. The engine authorizes the
+reference again on send (`AttachHostReference`).
+
+There are two ways to fill the slot, and the last call or parameter change wins:
+
+- **`SetDraftReferenceAsync(HostReference?)` (primary).** Call it on the component through `@ref` from the host
+  wrapper. It is safe from any thread, and `null` removes the host reference. Calling it again with the same reference
+  places that reference again after the user removed it or a sent message carried it; while the reference is still in
+  the draft, nothing changes, so a retry after a lost response keeps its idempotency key. It returns `false` when the
+  reference is invalid or does not fit, or when the component has not received its parameters yet. A call made while
+  the history is still loading is kept.
+- **`DraftReferenceType`/`DraftReferenceId` (declarative).**
+  - A change of either value replaces the host reference.
+  - An empty or invalid pair removes it.
+  - Re-rendering with unchanged values does nothing, so a removed or already sent reference is not re-added. Because
+    of this, the parameters cannot express "ask about the same task again"; use the method for that.
+  - During prerender the reference is part of the read-only first render. The interactive component places the
+    current values when it starts, so a value that changed before interactivity is not lost.
+
+Example: an "Ask in chat" button lives outside the island (for example in a static task card), and a small host
+script forwards the click to the wrapper that owns the island.
+
+```html
+<button type="button" data-ask-type="task" data-ask-id="7">Ask in chat</button>
+<script>
+  // Host script: forwards clicks to the registered wrapper (one per page).
+  window.hostChatAsk = {
+    target: null,
+    register(target) { this.target = target; },
+    unregister(target) { if (this.target === target) this.target = null; },
+  };
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-ask-type]");
+    if (button && window.hostChatAsk.target) {
+      window.hostChatAsk.target.invokeMethodAsync("AskAboutAsync", button.dataset.askType, button.dataset.askId);
+    }
+  });
+</script>
+```
+
+```razor
+@* Host wrapper rendered as the island; delegates and templates are set here. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<ServerTrustedChat @ref="_chat" ConversationId="ConversationId" UserId="UserId"
+                   DraftReferenceType="lesson" DraftReferenceId="@LessonId" />
+
+@code {
+    private ServerTrustedChat? _chat;
+    private DotNetObjectReference<HostChat>? _self;
+
+    [Parameter, EditorRequired] public Guid ConversationId { get; set; }
+    [Parameter, EditorRequired] public Guid UserId { get; set; }
+    [Parameter] public string? LessonId { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && RendererInfo.IsInteractive)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("hostChatAsk.register", _self);
+        }
+    }
+
+    [JSInvokable]
+    public async Task AskAboutAsync(string type, string id)
+    {
+        // Host-side check of the identifier format; the engine authorizes the reference again on send.
+        if (_chat is not null && ServerTrustedChatValidation.IsReferenceType(type) && ServerTrustedChatValidation.IsReferenceId(id))
+        {
+            await _chat.SetDraftReferenceAsync(new HostReference(type, id));
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_self is not null)
+        {
+            try { await JS.InvokeVoidAsync("hostChatAsk.unregister", _self); }
+            catch (JSDisconnectedException) { }
+            _self.Dispose();
+        }
+    }
+}
+```
+
+Before 0.21.0 the parameters were applied only when the component created its view model, so hosts recreated the
+component with `@key` to change the reference. That reloaded the history and discarded the draft. Remove the `@key`
+and call `SetDraftReferenceAsync` instead.
+
 Operational notes:
 
 - Messages are marked read only after the JavaScript module
@@ -286,6 +385,16 @@ and it is marked read as soon as the document becomes visible; a host reference 
 rendered; an image is uploaded through `InputFile`, rendered as a link and downloaded by an observer with `nosniff`,
 `no-store` and `sandbox` headers while a non-participant gets 404; a report from the UI opens a bounded, flagged window
 for the manager with one access-log entry, and a participant cannot open it.
+
+The chat page also has "Ask in chat" buttons outside the island. `wwwroot/chat-ask.js` forwards a click to
+`MentorChat.AskAboutAsync`, which calls `SetDraftReferenceAsync`. This was verified manually for 0.21.0 on 2026-11-11.
+The circuit is the same one, with no history reload and no component recreation:
+
+- With text typed, switching task 8 to task 7 replaces the chip and keeps the text.
+- After starting a reply, switching to task 8 keeps both the reply target and the text.
+- The sent message carries "Задача 8".
+- Pressing "Ask about task 8" again after sending places the reference again.
+- The browser console and server log show no errors.
 
 ## Threat model summary
 

@@ -4,5 +4,11 @@
     ViewData["Title"] = "Чат с преподавателем";
 }
 <h1>Чат с преподавателем</h1>
+@* Buttons outside the island: chat-ask.js forwards them to the wrapper, which calls SetDraftReferenceAsync. *@
+<p class="ask-tasks">
+    <button type="button" data-ask-type="task" data-ask-id="7">Спросить в чате о задаче 7</button>
+    <button type="button" data-ask-type="task" data-ask-id="8">Спросить в чате о задаче 8</button>
+</p>
 <component type="typeof(MentorChat)" render-mode="ServerPrerendered"
            param-ConversationId="Model.ConversationId" param-UserId="Model.UserId" param-LessonId="Model.LessonId" />
+<script src="chat-ask.js"></script>
