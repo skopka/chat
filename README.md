@@ -16,7 +16,7 @@ Documentation for Skopka.Chat **0.19.0**:
 
 ## Пакеты
 
-Версия `0.21.0` ещё не опубликована. В `Skopka.Chat.ServerTrusted.Blazor` она даёт хосту менять ссылку черновика у уже
+Версия `0.21.0` в `Skopka.Chat.ServerTrusted.Blazor` даёт хосту менять ссылку черновика у уже
 загруженного `ServerTrustedChat`. Для этого есть метод `SetDraftReferenceAsync(HostReference?)` и смена параметров
 `DraftReferenceType`/`DraftReferenceId`. Компонент не пересоздаётся и история не перечитывается; набранный текст, вложения,
 ответ и правка остаются. Пересоздавать компонент через `@key`, как раньше, больше не нужно. Движок, хранилище, события и
